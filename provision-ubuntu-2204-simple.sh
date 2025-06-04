@@ -1252,7 +1252,7 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
                 Write-Host '  PowerShell module installation directories:'
                 foreach (\$path in @('/usr/local/share/powershell/Modules', '/opt/microsoft/powershell/7/Modules')) {
                     if (Test-Path \$path) {
-                        Write-Host \"    \$path:\" -ForegroundColor Cyan
+                        Write-Host \"    \$(\$path):\" -ForegroundColor Cyan
                         \$items = Get-ChildItem \$path -ErrorAction SilentlyContinue
                         if (\$items) {
                             foreach (\$item in (\$items | Select-Object -First 5)) {
@@ -1265,7 +1265,7 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
                             Write-Host \"      (empty)\" -ForegroundColor Gray
                         }
                     } else {
-                        Write-Host \"    \$path: does not exist\" -ForegroundColor Red
+                        Write-Host \"    \$(\$path): does not exist\" -ForegroundColor Red
                     }
                 }
             "
