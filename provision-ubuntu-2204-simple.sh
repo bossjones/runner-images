@@ -29,7 +29,7 @@
 #   INSTALL_VERSION_CONTROL, INSTALL_BROWSERS, INSTALL_LANGUAGES,
 #   INSTALL_DATABASES, INSTALL_WEB_SERVERS, INSTALL_BUILD_TOOLS,
 #   INSTALL_CONTAINER_TOOLS, INSTALL_INFRASTRUCTURE, INSTALL_ANDROID,
-#   INSTALL_POWERSHELL, INSTALL_DATA_SCIENCE, INSTALL_MISC_TOOLS
+#   INSTALL_POWERSHELL, INSTALL_AZURE_MODULES, INSTALL_DATA_SCIENCE, INSTALL_MISC_TOOLS
 #
 # Examples:
 #   # Check environment and auto-install missing packages before running
@@ -138,6 +138,7 @@ INSTALL_CONTAINER_TOOLS="${INSTALL_CONTAINER_TOOLS:-1}"          # Docker, conta
 INSTALL_INFRASTRUCTURE="${INSTALL_INFRASTRUCTURE:-0}"            # Terraform, Packer, Pulumi
 INSTALL_ANDROID="${INSTALL_ANDROID:-0}"                          # Android SDK
 INSTALL_POWERSHELL="${INSTALL_POWERSHELL:-1}"                    # PowerShell and PowerShell modules
+INSTALL_AZURE_MODULES="${INSTALL_AZURE_MODULES:-0}"              # Azure PowerShell modules (slow to install)
 INSTALL_DATA_SCIENCE="${INSTALL_DATA_SCIENCE:-0}"                # Miniconda, R language
 INSTALL_MISC_TOOLS="${INSTALL_MISC_TOOLS:-1}"                    # Selenium, pipx packages, Homebrew
 
@@ -683,6 +684,7 @@ run_doctor() {
         "INSTALL_INFRASTRUCTURE:Infrastructure Tools"
         "INSTALL_ANDROID:Android SDK"
         "INSTALL_POWERSHELL:PowerShell"
+        "INSTALL_AZURE_MODULES:Azure PowerShell Modules"
         "INSTALL_DATA_SCIENCE:Data Science Tools"
         "INSTALL_MISC_TOOLS:Miscellaneous Tools"
     )
@@ -924,6 +926,16 @@ else
     exit 1
 fi
 
+# Create the expected PowerShell tests directory and copy tests there
+echo_info "Setting up PowerShell tests directory..."
+mkdir -p "/imagegeneration/tests"
+if [[ -d "$UBUNTU_SCRIPTS_DIR/tests" ]]; then
+    cp -r "$UBUNTU_SCRIPTS_DIR/tests/"* "/imagegeneration/tests/"
+    echo_success "PowerShell tests copied to /imagegeneration/tests"
+else
+    echo_warning "Tests directory not found at $UBUNTU_SCRIPTS_DIR/tests"
+fi
+
 # State file for tracking completion
 STATE_FILE="${STATE_FILE:-/tmp/provision-ubuntu-2204.state}"
 FORCE_RESTART="${FORCE_RESTART:-0}"
@@ -996,7 +1008,11 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
     echo_info "Installing PowerShell..."
     run_step "install-powershell" "script" "$UBUNTU_SCRIPTS_DIR/build/install-powershell.sh"
     run_step "install-powershell-modules" "pwsh" "$UBUNTU_SCRIPTS_DIR/build/Install-PowerShellModules.ps1"
-    run_step "install-powershell-az-modules" "pwsh" "$UBUNTU_SCRIPTS_DIR/build/Install-PowerShellAzModules.ps1"
+
+    # Install Azure modules separately (they're large and slow)
+    if ! skip_if_disabled "$INSTALL_AZURE_MODULES" "Azure PowerShell modules"; then
+        run_step "install-powershell-az-modules" "pwsh" "$UBUNTU_SCRIPTS_DIR/build/Install-PowerShellAzModules.ps1"
+    fi
 fi
 
 # Install core tools
