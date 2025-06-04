@@ -1002,8 +1002,40 @@ setup_directories_and_toolset() {
         echo_warning "Tests directory not found at $UBUNTU_SCRIPTS_DIR/tests"
     fi
     if [[ -d "$UBUNTU_SCRIPTS_DIR/helpers" ]]; then
-        cp -r "$UBUNTU_SCRIPTS_DIR/helpers/"* "/imagegeneration/helpers/"
-        echo_success "PowerShell helpers copied to /imagegeneration/helpers"
+        # Copy all helper files - use direct copy to avoid wildcard issues
+        # Only copy files, not subdirectories
+        find "$UBUNTU_SCRIPTS_DIR/helpers/" -maxdepth 1 -type f -exec cp {} "/imagegeneration/helpers/" \; 2>/dev/null || true
+        echo_success "Helper scripts copied to /imagegeneration/helpers"
+        
+        # List what we actually copied for debugging
+        echo_info "Files copied to /imagegeneration/helpers/:"
+        ls -la "/imagegeneration/helpers/" || echo_warning "Could not list helper files"
+        
+        # Verify critical helper files were copied
+        if [[ -f "/imagegeneration/helpers/os.sh" ]]; then
+            echo_success "  ✓ os.sh copied successfully"
+        else
+            echo_error "  ✗ os.sh not found after copy"
+            echo_info "  Source path: $UBUNTU_SCRIPTS_DIR/helpers/os.sh"
+            if [[ -f "$UBUNTU_SCRIPTS_DIR/helpers/os.sh" ]]; then
+                echo_info "  Source file exists, manually copying..."
+                cp "$UBUNTU_SCRIPTS_DIR/helpers/os.sh" "/imagegeneration/helpers/os.sh" || echo_error "Failed to manually copy os.sh"
+            else
+                echo_error "  Source file does not exist: $UBUNTU_SCRIPTS_DIR/helpers/os.sh"
+            fi
+        fi
+        if [[ -f "/imagegeneration/helpers/install.sh" ]]; then
+            echo_success "  ✓ install.sh copied successfully"  
+        else
+            echo_error "  ✗ install.sh not found after copy"
+            echo_info "  Source path: $UBUNTU_SCRIPTS_DIR/helpers/install.sh"
+            if [[ -f "$UBUNTU_SCRIPTS_DIR/helpers/install.sh" ]]; then
+                echo_info "  Source file exists, manually copying..."
+                cp "$UBUNTU_SCRIPTS_DIR/helpers/install.sh" "/imagegeneration/helpers/install.sh" || echo_error "Failed to manually copy install.sh"
+            else
+                echo_error "  Source file does not exist: $UBUNTU_SCRIPTS_DIR/helpers/install.sh"
+            fi
+        fi
     else
         echo_warning "Helpers directory not found at $UBUNTU_SCRIPTS_DIR/helpers"
     fi
@@ -1026,7 +1058,7 @@ else
     if grep -q "^setup-directories-and-toolset$" "$STATE_FILE" 2>/dev/null; then
         # Setup was marked complete, but ensure directory exists and has correct structure
         echo_info "Setup step marked complete, verifying /imagegeneration directory structure..."
-        if [[ ! -f "/imagegeneration/toolset.json" ]] || [[ ! -d "/imagegeneration/tests" ]] || [[ ! -d "/imagegeneration/helpers" ]]; then
+        if [[ ! -f "/imagegeneration/toolset.json" ]] || [[ ! -d "/imagegeneration/tests" ]] || [[ ! -d "/imagegeneration/helpers" ]] || [[ ! -f "/imagegeneration/helpers/os.sh" ]] || [[ ! -f "/imagegeneration/helpers/install.sh" ]]; then
             echo_warning "Incomplete /imagegeneration directory detected, forcing rebuild..."
             # Remove the step from state file to force re-run
             grep -v "^setup-directories-and-toolset$" "$STATE_FILE" > "$STATE_FILE.tmp" 2>/dev/null || touch "$STATE_FILE.tmp"
@@ -1068,6 +1100,19 @@ if [[ -f "$HELPER_SCRIPTS/../tests/Helpers.psm1" ]]; then
     echo_success "  ✓ Helpers.psm1 found at $HELPER_SCRIPTS/../tests/Helpers.psm1"
 else
     echo_error "  ✗ Helpers.psm1 missing at $HELPER_SCRIPTS/../tests/Helpers.psm1"
+fi
+
+# Additional verification of critical helper files
+echo_info "Helper file verification:"
+if [[ -f "/imagegeneration/helpers/os.sh" ]]; then
+    echo_success "  ✓ os.sh found at /imagegeneration/helpers/os.sh"
+else
+    echo_error "  ✗ os.sh missing at /imagegeneration/helpers/os.sh"
+fi
+if [[ -f "/imagegeneration/helpers/install.sh" ]]; then
+    echo_success "  ✓ install.sh found at /imagegeneration/helpers/install.sh"
+else
+    echo_error "  ✗ install.sh missing at /imagegeneration/helpers/install.sh"
 fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
