@@ -93,7 +93,7 @@ invoke_tests() {
             # Override the Invoke-PesterTests function to use our correct path
             function global:Invoke-PesterTests {
                 param([string]\$TestFile, [string]\$TestName)
-                \$testPath = '$test_dir/\${TestFile}.Tests.ps1'
+                \$testPath = '$test_dir/' + \$TestFile + '.Tests.ps1'
                 if (-not (Test-Path \$testPath)) {
                     throw \"Unable to find test file '\$TestFile' on '\$testPath'.\"
                 }
@@ -929,11 +929,18 @@ fi
 # Create the expected PowerShell tests directory and copy tests there
 echo_info "Setting up PowerShell tests directory..."
 mkdir -p "/imagegeneration/tests"
+mkdir -p "/imagegeneration/helpers"
 if [[ -d "$UBUNTU_SCRIPTS_DIR/tests" ]]; then
     cp -r "$UBUNTU_SCRIPTS_DIR/tests/"* "/imagegeneration/tests/"
     echo_success "PowerShell tests copied to /imagegeneration/tests"
 else
     echo_warning "Tests directory not found at $UBUNTU_SCRIPTS_DIR/tests"
+fi
+if [[ -d "$UBUNTU_SCRIPTS_DIR/helpers" ]]; then
+    cp -r "$UBUNTU_SCRIPTS_DIR/helpers/"* "/imagegeneration/helpers/"
+    echo_success "PowerShell helpers copied to /imagegeneration/helpers"
+else
+    echo_warning "Helpers directory not found at $UBUNTU_SCRIPTS_DIR/helpers"
 fi
 
 # State file for tracking completion
