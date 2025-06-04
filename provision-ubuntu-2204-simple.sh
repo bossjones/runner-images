@@ -328,6 +328,85 @@ check_and_install_package() {
     fi
 }
 
+# Function to ensure helper scripts are available
+ensure_helper_scripts() {
+    # Ensure the /imagegeneration/helpers directory exists and has the required files
+    if [[ ! -d "/imagegeneration/helpers" ]]; then
+        echo_error "Helper scripts directory missing: /imagegeneration/helpers"
+        echo_info "Re-running setup to create helper scripts..."
+        setup_directories_and_toolset
+    fi
+    
+    # Check for critical helper files and copy them if missing
+    local missing_helpers=()
+    
+    if [[ ! -f "/imagegeneration/helpers/os.sh" ]]; then
+        missing_helpers+=("os.sh")
+    fi
+    
+    if [[ ! -f "/imagegeneration/helpers/install.sh" ]]; then
+        missing_helpers+=("install.sh")
+    fi
+    
+    if [[ ${#missing_helpers[@]} -gt 0 ]]; then
+        echo_warning "Missing helper scripts: ${missing_helpers[*]}"
+        echo_info "Copying missing helper scripts..."
+        
+        for helper in "${missing_helpers[@]}"; do
+            if [[ -f "$UBUNTU_SCRIPTS_DIR/helpers/$helper" ]]; then
+                cp "$UBUNTU_SCRIPTS_DIR/helpers/$helper" "/imagegeneration/helpers/$helper"
+                chmod +x "/imagegeneration/helpers/$helper"
+                echo_success "  ✓ Copied $helper"
+            else
+                echo_error "  ✗ Source file missing: $UBUNTU_SCRIPTS_DIR/helpers/$helper"
+            fi
+        done
+    fi
+    
+    # Export the HELPER_SCRIPTS environment variable to ensure it's available
+    export HELPER_SCRIPTS="/imagegeneration/helpers"
+    export INSTALLER_SCRIPT_FOLDER="/imagegeneration"
+    
+    # Source the helper scripts to make functions available globally
+    if [[ -f "/imagegeneration/helpers/os.sh" ]]; then
+        source "/imagegeneration/helpers/os.sh"
+    fi
+    
+    if [[ -f "/imagegeneration/helpers/install.sh" ]]; then
+        source "/imagegeneration/helpers/install.sh"
+    fi
+    
+    # Provide fallback functions if helpers are not available
+    if ! command -v get_toolset_value >/dev/null 2>&1; then
+        get_toolset_value() {
+            local toolset_path="/imagegeneration/toolset.json"
+            local query="$1"
+            if [[ -f "$toolset_path" ]]; then
+                jq -r "$query" "$toolset_path" 2>/dev/null || echo ""
+            else
+                echo ""
+            fi
+        }
+    fi
+    
+    if ! command -v is_ubuntu24 >/dev/null 2>&1; then
+        is_ubuntu24() {
+            lsb_release -rs 2>/dev/null | grep -q '24.04'
+        }
+    fi
+    
+    if ! command -v is_ubuntu22 >/dev/null 2>&1; then
+        is_ubuntu22() {
+            lsb_release -rs 2>/dev/null | grep -q '22.04'
+        }
+    fi
+    
+    # Export the functions so they're available to child processes
+    export -f get_toolset_value
+    export -f is_ubuntu24
+    export -f is_ubuntu22
+}
+
 # Function to run a step with state tracking
 run_step() {
     local step_name="$1"
@@ -352,15 +431,38 @@ run_step() {
         echo_info "Ensuring cloud templates directory exists..."
         mkdir -p /etc/cloud/templates
     fi
+    
+    # Ensure helper scripts are available for script execution steps
+    if [[ "$step_type" == "script" ]] && [[ "$step_command" == *"/build/"* ]]; then
+        ensure_helper_scripts
+    fi
 
     case "$step_type" in
         "command")
             eval "$step_command"
             ;;
         "script")
+            # Export environment variables before running script
+            export HELPER_SCRIPTS="/imagegeneration/helpers"
+            export INSTALLER_SCRIPT_FOLDER="/imagegeneration"
+            
+            # Export critical functions to the script environment
+            export -f get_toolset_value 2>/dev/null || true
+            export -f is_ubuntu24 2>/dev/null || true
+            export -f is_ubuntu22 2>/dev/null || true
+            
             bash "$step_command"
             ;;
         "pwsh")
+            # Export environment variables before running PowerShell script
+            export HELPER_SCRIPTS="/imagegeneration/helpers"
+            export INSTALLER_SCRIPT_FOLDER="/imagegeneration"
+            
+            # Export critical functions to the script environment
+            export -f get_toolset_value 2>/dev/null || true
+            export -f is_ubuntu24 2>/dev/null || true
+            export -f is_ubuntu22 2>/dev/null || true
+            
             pwsh -f "$step_command"
             ;;
         *)
@@ -1005,6 +1107,10 @@ setup_directories_and_toolset() {
         # Copy all helper files - use direct copy to avoid wildcard issues
         # Only copy files, not subdirectories
         find "$UBUNTU_SCRIPTS_DIR/helpers/" -maxdepth 1 -type f -exec cp {} "/imagegeneration/helpers/" \; 2>/dev/null || true
+        
+        # Make helper scripts executable
+        chmod +x "/imagegeneration/helpers/"*.sh 2>/dev/null || true
+        
         echo_success "Helper scripts copied to /imagegeneration/helpers"
         
         # List what we actually copied for debugging
@@ -1155,6 +1261,10 @@ run_command "export DEBIAN_FRONTEND=noninteractive"
 run_command "export IMAGE_VERSION=$IMAGE_VERSION"
 run_command "export IMAGE_OS=$IMAGE_OS"
 
+# Ensure helper scripts are available before starting main installation
+echo_info "Final verification: Ensuring helper scripts are available..."
+ensure_helper_scripts
+
 # Export the invoke_tests function and echo functions so they're available to installation scripts
 export -f invoke_tests
 export -f echo_info
@@ -1163,12 +1273,25 @@ export -f echo_warning
 export -f echo_error
 export -f echo_step
 export -f cleanup_imagegeneration
+export -f ensure_helper_scripts
 
 export HELPER_SCRIPTS=$HELPER_SCRIPTS
 export INSTALLER_SCRIPT_FOLDER=$INSTALLER_SCRIPT_FOLDER
 export DEBIAN_FRONTEND=noninteractive
 export IMAGE_VERSION=$IMAGE_VERSION
 export IMAGE_OS=$IMAGE_OS
+
+# Verify final environment setup
+echo_info "Final environment setup verification:"
+echo_info "  HELPER_SCRIPTS=$HELPER_SCRIPTS"
+echo_info "  INSTALLER_SCRIPT_FOLDER=$INSTALLER_SCRIPT_FOLDER"
+if [[ -f "$HELPER_SCRIPTS/os.sh" ]]; then
+    echo_success "  ✓ Helper scripts are ready"
+else
+    echo_error "  ✗ Helper scripts are still missing after setup"
+    echo_error "  This is a critical error - stopping execution"
+    exit 1
+fi
 
 # Install comprehensive prerequisites as a tracked step
 run_step "install-prerequisites" "command" "install_prerequisites_step"
