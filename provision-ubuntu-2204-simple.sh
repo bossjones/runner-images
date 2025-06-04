@@ -965,23 +965,22 @@ IMAGE_OS="${IMAGE_OS:-ubuntu22}"
 
 # Setup function for directories and toolset configuration
 setup_directories_and_toolset() {
-    # Create a temporary directory for installer scripts and copy the toolset file
-    TEMP_INSTALLER_DIR="/tmp/runner-images-installer"
-    mkdir -p "$TEMP_INSTALLER_DIR"
+    # Create the imagegeneration directory structure (matches Packer builds)
+    echo_info "Setting up imagegeneration directory structure..."
+    mkdir -p "/imagegeneration"
 
-    # Copy the appropriate toolset file to the expected location
+    # Copy the appropriate toolset file to the standard location
     if [[ -f "$INSTALLER_SCRIPT_FOLDER/toolset-2204.json" ]]; then
         echo_info "Setting up toolset configuration for Ubuntu 22.04"
-        cp "$INSTALLER_SCRIPT_FOLDER/toolset-2204.json" "$TEMP_INSTALLER_DIR/toolset.json"
-        # Update INSTALLER_SCRIPT_FOLDER to point to our temp directory
-        INSTALLER_SCRIPT_FOLDER="$TEMP_INSTALLER_DIR"
+        cp "$INSTALLER_SCRIPT_FOLDER/toolset-2204.json" "/imagegeneration/toolset.json"
+        echo_success "Toolset configuration copied to /imagegeneration/toolset.json"
     else
         echo_error "Cannot find toolset-2204.json file at $INSTALLER_SCRIPT_FOLDER/toolset-2204.json"
         return 1
     fi
 
-    # Create the expected PowerShell tests directory and copy tests there
-    echo_info "Setting up PowerShell tests directory..."
+    # Create the expected PowerShell tests and helpers directories
+    echo_info "Setting up PowerShell tests and helpers directories..."
     mkdir -p "/imagegeneration/tests"
     mkdir -p "/imagegeneration/helpers"
     if [[ -d "$UBUNTU_SCRIPTS_DIR/tests" ]]; then
@@ -1003,18 +1002,18 @@ STATE_FILE="${STATE_FILE:-/tmp/provision-ubuntu-2204.state}"
 FORCE_RESTART="${FORCE_RESTART:-0}"
 
 # Run setup as a tracked step (before we use INSTALLER_SCRIPT_FOLDER)
-# Always ensure INSTALLER_SCRIPT_FOLDER points to the temp directory
-TEMP_INSTALLER_DIR="/tmp/runner-images-installer"
+# Always ensure INSTALLER_SCRIPT_FOLDER points to the imagegeneration directory
+IMAGEGENERATION_DIR="/imagegeneration"
 
 if [[ "$DRY_RUN" == "1" ]]; then
     echo_dry_run "Would run setup-directories-and-toolset step"
-    INSTALLER_SCRIPT_FOLDER="$TEMP_INSTALLER_DIR"
+    INSTALLER_SCRIPT_FOLDER="$IMAGEGENERATION_DIR"
 else
     # Check if setup was already completed and update INSTALLER_SCRIPT_FOLDER accordingly
     if grep -q "^setup-directories-and-toolset$" "$STATE_FILE" 2>/dev/null; then
         # Setup was already completed, just update the path
-        INSTALLER_SCRIPT_FOLDER="$TEMP_INSTALLER_DIR"
-        echo_info "Setup step was already completed, using temp installer directory"
+        INSTALLER_SCRIPT_FOLDER="$IMAGEGENERATION_DIR"
+        echo_info "Setup step was already completed, using imagegeneration directory"
     else
         # Run the setup step
         run_step "setup-directories-and-toolset" "command" "setup_directories_and_toolset"
@@ -1071,6 +1070,12 @@ export -f echo_success
 export -f echo_warning
 export -f echo_error
 export -f echo_step
+
+export HELPER_SCRIPTS=$HELPER_SCRIPTS
+export INSTALLER_SCRIPT_FOLDER=$INSTALLER_SCRIPT_FOLDER
+export DEBIAN_FRONTEND=noninteractive
+export IMAGE_VERSION=$IMAGE_VERSION
+export IMAGE_OS=$IMAGE_OS
 
 # Install comprehensive prerequisites as a tracked step
 run_step "install-prerequisites" "command" "install_prerequisites_step"
