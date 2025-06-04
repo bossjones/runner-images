@@ -56,7 +56,7 @@ Invoke-Pester images/ubuntu/scripts/tests/Git.Tests.ps1
 
 ### OS Support
 - **Ubuntu**: 22.04, 24.04 (`ubuntu-latest` points to 24.04)
-- **Windows**: Server 2019, 2022, 2025 (`windows-latest` points to 2022)  
+- **Windows**: Server 2019, 2022, 2025 (`windows-latest` points to 2022)
 - **macOS**: 13, 14, 15 (Intel x64 and ARM64) (`macos-latest` points to 14 ARM64)
 
 ### Image Generation Flow
@@ -141,3 +141,56 @@ Describe "ToolName" {
 
 ## Post-Generation Scripts
 Located in `images/{os}/assets/post-gen/` - these scripts run on deployed VMs to configure user-specific settings and permissions after image deployment.
+
+## Simplified Provisioning Script
+
+### Custom Local Provisioning
+- **File**: `provision-ubuntu-2204-simple.sh` - Simplified provisioning script for local Ubuntu 22.04 setup
+- **Purpose**: Replicate GitHub Actions runner environment on any Ubuntu 22.04 system without Packer
+- **Cross-platform development**: Developed on macOS, executed on Ubuntu
+
+### Usage
+```bash
+# Basic usage
+sudo ./provision-ubuntu-2204-simple.sh
+
+# Check environment and auto-install missing packages
+sudo ENABLE_DOCTOR=1 ./provision-ubuntu-2204-simple.sh
+
+# Dry run to see what would be installed
+sudo DRY_RUN=1 ./provision-ubuntu-2204-simple.sh
+
+# Resume from failed step (automatic state management)
+sudo ./provision-ubuntu-2204-simple.sh
+
+# Start completely fresh
+sudo FORCE_RESTART=1 ./provision-ubuntu-2204-simple.sh
+
+# Disable colors for logging
+sudo DISABLE_COLORS=1 ./provision-ubuntu-2204-simple.sh > provision.log 2>&1
+```
+
+### Key Features
+- **State Management**: Automatic resumption from failed steps using state files
+- **Feature Flags**: Granular control over software installation groups
+- **Doctor Mode**: Environment validation and automatic package installation
+- **Color Output**: Enhanced readability with optional color disable
+- **Cross-platform**: Handles macOS development → Ubuntu execution workflow
+
+### Environment Requirements
+- **Critical packages**: curl, wget, jq, gpg, unzip, tar (auto-installed if missing)
+- **System directories**: `/etc/cloud/templates`, `/usr/local/bin`, `/etc/environment`
+- **Network access**: GitHub, package repositories, language-specific download sites
+- **Permissions**: sudo access for package installation and system configuration
+
+### Architecture Differences from Packer
+- **No IMAGE_FOLDER**: Runs directly from repo directory instead of `/imagegeneration`
+- **Temporary toolset**: Creates `/tmp/runner-images-installer/toolset.json` from `toolset-2204.json`
+- **Helper functions**: Includes `invoke_tests()` function for PowerShell test integration
+- **Auto-recovery**: Creates missing system directories (e.g., `/etc/cloud/templates`)
+
+### Development Notes
+- **Environment variables**: `DEBIAN_FRONTEND=noninteractive` set early to prevent interactive prompts
+- **Toolset mapping**: Ubuntu 22.04 uses `toolset-2204.json` → `toolset.json` at runtime
+- **Package installation**: Robust error handling with automatic retry and validation
+- **Testing integration**: Graceful fallback when PowerShell/tests unavailable

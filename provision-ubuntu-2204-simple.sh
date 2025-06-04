@@ -10,7 +10,7 @@
 #   4. sudo ./provision-ubuntu-2204-simple.sh
 #
 # Basic Usage:
-#   sudo ./provision-ubuntu-2204-simple.sh                           # Normal execution
+#   sudo ./provision-ubuntu-2204-simple.sh                           # Normal execution (includes prerequisites)
 #   sudo DRY_RUN=1 ./provision-ubuntu-2204-simple.sh                 # Dry run mode (shows commands without executing)
 #   sudo ENABLE_DOCTOR=1 ./provision-ubuntu-2204-simple.sh           # Doctor mode (check environment and auto-install missing packages)
 #   sudo DISABLE_COLORS=1 ./provision-ubuntu-2204-simple.sh          # Disable colored output
@@ -72,18 +72,54 @@ invoke_tests() {
     local test_name="$1"
     local test_file="$2"
 
+    # Determine the correct test directory path
+    local test_dir="$HELPER_SCRIPTS/../tests"
+    local helpers_file="$test_dir/Helpers.psm1"
+    local test_file_path="$test_dir/${test_name}.Tests.ps1"
+
     # Only run tests if PowerShell is available and tests directory exists
-    if command -v pwsh >/dev/null 2>&1 && [[ -f "$HELPER_SCRIPTS/../tests/Helpers.psm1" ]]; then
+    if command -v pwsh >/dev/null 2>&1 && [[ -f "$helpers_file" ]] && [[ -f "$test_file_path" ]]; then
         echo_info "Running tests for $test_name..."
         if [[ "$DRY_RUN" == "1" ]]; then
-            echo_dry_run "Would run tests for $test_name"
+            echo_dry_run "Would run tests for $test_name using $test_file_path"
             return 0
         fi
 
-        # Run the PowerShell tests
-        pwsh -Command "Import-Module '$HELPER_SCRIPTS/../tests/Helpers.psm1' -DisableNameChecking; Invoke-PesterTests -TestFile \"$test_name\" -TestName \"$test_file\""
+        # Run the PowerShell tests with correct paths
+        # We need to override the hardcoded path in the PowerShell function
+        pwsh -Command "
+            Import-Module '$helpers_file' -DisableNameChecking
+
+            # Override the Invoke-PesterTests function to use our correct path
+            function global:Invoke-PesterTests {
+                param([string]\$TestFile, [string]\$TestName)
+                \$testPath = '$test_dir/\${TestFile}.Tests.ps1'
+                if (-not (Test-Path \$testPath)) {
+                    throw \"Unable to find test file '\$TestFile' on '\$testPath'.\"
+                }
+                if (-not (Get-Module 'Pester')) {
+                    Import-Module Pester
+                }
+                \$configuration = [PesterConfiguration] @{
+                    Run    = @{ Path = \$testPath; PassThru = \$true }
+                    Output = @{ Verbosity = 'Detailed'; RenderMode = 'Plaintext' }
+                }
+                if (\$TestName) {
+                    \$configuration.Filter.FullName = \$TestName
+                }
+                Invoke-Pester -Configuration \$configuration
+            }
+
+            Invoke-PesterTests -TestFile '$test_name' -TestName '$test_file'
+        "
     else
-        echo_info "Skipping tests for $test_name (PowerShell or test framework not available)"
+        echo_info "Skipping tests for $test_name (PowerShell, test framework, or test file not available)"
+        if [[ ! -f "$helpers_file" ]]; then
+            echo_info "  Missing: $helpers_file"
+        fi
+        if [[ ! -f "$test_file_path" ]]; then
+            echo_info "  Missing: $test_file_path"
+        fi
     fi
 }
 
@@ -746,6 +782,96 @@ ensure_essential_packages() {
 # Check essential packages before proceeding
 ensure_essential_packages
 
+# Install comprehensive prerequisites
+install_prerequisites() {
+    echo_header "Installing Prerequisites"
+
+    if [[ "$DRY_RUN" == "1" ]]; then
+        echo_dry_run "Would install comprehensive prerequisites package list"
+        echo_dry_run "Would configure locales (en_US.UTF-8)"
+        return 0
+    fi
+
+    echo_info "Updating package lists..."
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq
+
+    echo_info "Installing comprehensive prerequisites (this may take a few minutes)..."
+
+    # Install prerequisites in groups for better error handling and progress visibility
+    local basic_packages=(
+        "sudo" "curl" "wget" "git" "ca-certificates" "gnupg" "lsb-release"
+        "apt-transport-https" "build-essential" "procps" "locales" "bash-completion"
+    )
+
+    local dev_packages=(
+        "g++" "gcc" "gzip" "make" "openssl" "pkg-config" "unzip" "vim" "tree" "xz-utils"
+    )
+
+    local library_packages=(
+        "libbz2-dev" "libcairo2-dev" "libffi-dev" "liblzma-dev" "libncurses5-dev"
+        "libncursesw5-dev" "libpq-dev" "libreadline-dev" "libsqlite3-dev" "libssl-dev"
+        "libyaml-dev" "zlib1g-dev"
+    )
+
+    local python_packages=(
+        "python3-dev" "python3-openssl"
+    )
+
+    local other_packages=(
+        "llvm" "sqlite3" "tk-dev"
+    )
+
+    # Install each group with progress reporting
+    for package_group in "basic_packages" "dev_packages" "library_packages" "python_packages" "other_packages"; do
+        local -n packages=$package_group
+        local group_name=${package_group//_/ }
+        group_name=${group_name^}  # Capitalize first letter
+
+        echo_info "Installing $group_name..."
+        if ! DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"; then
+            echo_error "Failed to install $group_name"
+            echo "Packages: ${packages[*]}"
+            exit 1
+        fi
+    done
+
+    echo_success "All prerequisites installed successfully"
+
+    # Configure locales
+    echo_info "Configuring locales (en_US.UTF-8)..."
+
+    # Enable en_US.UTF-8 locale
+    if ! grep -q "en_US.UTF-8 UTF-8" /etc/locale.gen; then
+        sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+    fi
+
+    # Generate locales
+    dpkg-reconfigure --frontend=noninteractive locales
+    update-locale LANG=en_US.UTF-8
+
+    # Set environment variables for current session
+    export LANG=en_US.UTF-8
+    export LANGUAGE=en_US:en
+    export LC_ALL=en_US.UTF-8
+
+    echo_success "Locales configured successfully"
+
+    # Clean up package cache
+    echo_info "Cleaning up package cache..."
+    # apt-get clean
+    # rm -rf /var/lib/apt/lists/*
+
+    echo_success "Prerequisites installation completed"
+}
+
+# Install prerequisites before proceeding
+install_prerequisites
+
+# Wrapper function for tracked step
+install_prerequisites_step() {
+    install_prerequisites
+}
+
 # Check if running from repo root
 if [[ ! -f "images/ubuntu/scripts/build/install-actions-cache.sh" ]]; then
     echo_error "Must run from runner-images repo root directory"
@@ -821,6 +947,9 @@ run_command "export INSTALLER_SCRIPT_FOLDER=$INSTALLER_SCRIPT_FOLDER"
 run_command "export DEBIAN_FRONTEND=noninteractive"
 run_command "export IMAGE_VERSION=$IMAGE_VERSION"
 run_command "export IMAGE_OS=$IMAGE_OS"
+
+# Install comprehensive prerequisites as a tracked step
+run_step "install-prerequisites" "command" "install_prerequisites_step"
 
 # Basic APT configuration
 echo_info "Configuring APT..."
