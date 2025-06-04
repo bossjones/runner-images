@@ -1245,6 +1245,29 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
                 } catch {
                     Write-Host \"    Import failed: \$_\" -ForegroundColor Red
                 }
+                
+                # Additional diagnostic information
+                Write-Host ''
+                Write-Host 'Additional Diagnostics:' -ForegroundColor Yellow
+                Write-Host '  PowerShell module installation directories:'
+                foreach (\$path in @('/usr/local/share/powershell/Modules', '/opt/microsoft/powershell/7/Modules')) {
+                    if (Test-Path \$path) {
+                        Write-Host \"    \$path:\" -ForegroundColor Cyan
+                        \$items = Get-ChildItem \$path -ErrorAction SilentlyContinue
+                        if (\$items) {
+                            foreach (\$item in (\$items | Select-Object -First 5)) {
+                                Write-Host \"      \$(\$item.Name)\" -ForegroundColor Magenta
+                            }
+                            if (\$items.Count -gt 5) {
+                                Write-Host \"      ... and \$(\$items.Count - 5) more\" -ForegroundColor Gray
+                            }
+                        } else {
+                            Write-Host \"      (empty)\" -ForegroundColor Gray
+                        }
+                    } else {
+                        Write-Host \"    \$path: does not exist\" -ForegroundColor Red
+                    }
+                }
             "
         else
             echo_warning "PowerShell not available for pre-flight check"
@@ -1261,23 +1284,58 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
             echo_info "  4. Pester module shows 'Available' and 'Import successful'"
             echo_info "  5. All paths are colored GREEN (good) and no RED 'False' or 'NOT AVAILABLE' values appear"
             echo ""
-            while true; do
-                read -p "Continue with Azure PowerShell modules installation? [y/n]: " yn
-                case $yn in
-                    [Yy]* )
-                        echo_success "Continuing with installation..."
-                        break
-                        ;;
-                    [Nn]* )
-                        echo_error "Installation cancelled by user"
-                        echo_info "You can investigate the environment and restart the script"
-                        exit 1
-                        ;;
-                    * )
-                        echo_warning "Please answer yes (y) or no (n)"
-                        ;;
-                esac
-            done
+            
+            # Check if PowerShell modules are missing and offer to fix
+            if ! pwsh -c "Get-Module -ListAvailable -Name Pester" >/dev/null 2>&1; then
+                echo_warning "Pester module is not available!"
+                echo_info "This is likely because the install-powershell-modules step was skipped during resume."
+                echo ""
+                while true; do
+                    read -p "Would you like to reinstall PowerShell modules now? [y/n/c]: " ync
+                    case $ync in
+                        [Yy]* )
+                            echo_info "Reinstalling PowerShell modules..."
+                            # Remove the step from state to force re-run
+                            grep -v "^install-powershell-modules$" "$STATE_FILE" > "$STATE_FILE.tmp" 2>/dev/null || touch "$STATE_FILE.tmp"
+                            mv "$STATE_FILE.tmp" "$STATE_FILE"
+                            # Run the PowerShell modules installation
+                            run_step "install-powershell-modules" "pwsh" "$UBUNTU_SCRIPTS_DIR/build/Install-PowerShellModules.ps1"
+                            echo_info "PowerShell modules installation completed. Continuing with Azure modules..."
+                            break
+                            ;;
+                        [Nn]* )
+                            echo_error "Cannot proceed without PowerShell modules"
+                            echo_info "Azure modules installation requires Pester for testing"
+                            exit 1
+                            ;;
+                        [Cc]* )
+                            echo_warning "Continuing anyway (Azure installation will likely fail)"
+                            break
+                            ;;
+                        * )
+                            echo_warning "Please answer yes (y), no (n), or continue anyway (c)"
+                            ;;
+                    esac
+                done
+            else
+                while true; do
+                    read -p "Continue with Azure PowerShell modules installation? [y/n]: " yn
+                    case $yn in
+                        [Yy]* )
+                            echo_success "Continuing with installation..."
+                            break
+                            ;;
+                        [Nn]* )
+                            echo_error "Installation cancelled by user"
+                            echo_info "You can investigate the environment and restart the script"
+                            exit 1
+                            ;;
+                        * )
+                            echo_warning "Please answer yes (y) or no (n)"
+                            ;;
+                    esac
+                done
+            fi
         fi
         
         echo_info "Starting Azure PowerShell modules installation..."
