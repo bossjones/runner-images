@@ -1198,10 +1198,14 @@ if ! skip_if_disabled "$INSTALL_MISC_TOOLS" "Miscellaneous tools"; then
     run_script "$UBUNTU_SCRIPTS_DIR/build/install-pipx-packages.sh"
     run_script "$UBUNTU_SCRIPTS_DIR/build/install-selenium.sh"
 
-    # Install Homebrew (run as regular user, not sudo)
+    # Install Homebrew (run as ubuntu user, not root)
     if [ "$EUID" -eq 0 ]; then
-        echo "Warning: Homebrew installation should be run as regular user, not root"
-        echo "Skipping Homebrew installation - run install-homebrew.sh manually as regular user"
+        echo_info "Installing Homebrew as ubuntu user..."
+        if [[ "$DRY_RUN" == "1" ]]; then
+            echo_dry_run "Would run: sudo -u ubuntu bash $UBUNTU_SCRIPTS_DIR/build/install-homebrew.sh"
+        else
+            sudo -u ubuntu bash "$UBUNTU_SCRIPTS_DIR/build/install-homebrew.sh"
+        fi
     else
         run_script "$UBUNTU_SCRIPTS_DIR/build/install-homebrew.sh"
     fi
