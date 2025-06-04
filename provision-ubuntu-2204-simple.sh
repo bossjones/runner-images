@@ -925,8 +925,7 @@ EOF
     echo_success "Prerequisites installation completed"
 }
 
-# Install prerequisites before proceeding
-install_prerequisites
+# Prerequisites will be installed as a tracked step later
 
 # Wrapper function for tracked step
 install_prerequisites_step() {
@@ -947,41 +946,54 @@ UBUNTU_SCRIPTS_DIR="${REPO_ROOT}/images/ubuntu/scripts"
 IMAGE_VERSION="${IMAGE_VERSION:-dev}"
 IMAGE_OS="${IMAGE_OS:-ubuntu22}"
 
-# Create a temporary directory for installer scripts and copy the toolset file
-TEMP_INSTALLER_DIR="/tmp/runner-images-installer"
-mkdir -p "$TEMP_INSTALLER_DIR"
-
-# Copy the appropriate toolset file to the expected location
-if [[ -f "$INSTALLER_SCRIPT_FOLDER/toolset-2204.json" ]]; then
-    echo_info "Setting up toolset configuration for Ubuntu 22.04"
-    cp "$INSTALLER_SCRIPT_FOLDER/toolset-2204.json" "$TEMP_INSTALLER_DIR/toolset.json"
-    # Update INSTALLER_SCRIPT_FOLDER to point to our temp directory
-    INSTALLER_SCRIPT_FOLDER="$TEMP_INSTALLER_DIR"
-else
-    echo_error "Cannot find toolset-2204.json file at $INSTALLER_SCRIPT_FOLDER/toolset-2204.json"
-    exit 1
-fi
-
-# Create the expected PowerShell tests directory and copy tests there
-echo_info "Setting up PowerShell tests directory..."
-mkdir -p "/imagegeneration/tests"
-mkdir -p "/imagegeneration/helpers"
-if [[ -d "$UBUNTU_SCRIPTS_DIR/tests" ]]; then
-    cp -r "$UBUNTU_SCRIPTS_DIR/tests/"* "/imagegeneration/tests/"
-    echo_success "PowerShell tests copied to /imagegeneration/tests"
-else
-    echo_warning "Tests directory not found at $UBUNTU_SCRIPTS_DIR/tests"
-fi
-if [[ -d "$UBUNTU_SCRIPTS_DIR/helpers" ]]; then
-    cp -r "$UBUNTU_SCRIPTS_DIR/helpers/"* "/imagegeneration/helpers/"
-    echo_success "PowerShell helpers copied to /imagegeneration/helpers"
-else
-    echo_warning "Helpers directory not found at $UBUNTU_SCRIPTS_DIR/helpers"
-fi
+# Setup function for directories and toolset configuration
+setup_directories_and_toolset() {
+    # Create a temporary directory for installer scripts and copy the toolset file
+    TEMP_INSTALLER_DIR="/tmp/runner-images-installer"
+    mkdir -p "$TEMP_INSTALLER_DIR"
+    
+    # Copy the appropriate toolset file to the expected location
+    if [[ -f "$INSTALLER_SCRIPT_FOLDER/toolset-2204.json" ]]; then
+        echo_info "Setting up toolset configuration for Ubuntu 22.04"
+        cp "$INSTALLER_SCRIPT_FOLDER/toolset-2204.json" "$TEMP_INSTALLER_DIR/toolset.json"
+        # Update INSTALLER_SCRIPT_FOLDER to point to our temp directory
+        INSTALLER_SCRIPT_FOLDER="$TEMP_INSTALLER_DIR"
+    else
+        echo_error "Cannot find toolset-2204.json file at $INSTALLER_SCRIPT_FOLDER/toolset-2204.json"
+        return 1
+    fi
+    
+    # Create the expected PowerShell tests directory and copy tests there
+    echo_info "Setting up PowerShell tests directory..."
+    mkdir -p "/imagegeneration/tests"
+    mkdir -p "/imagegeneration/helpers"
+    if [[ -d "$UBUNTU_SCRIPTS_DIR/tests" ]]; then
+        cp -r "$UBUNTU_SCRIPTS_DIR/tests/"* "/imagegeneration/tests/"
+        echo_success "PowerShell tests copied to /imagegeneration/tests"
+    else
+        echo_warning "Tests directory not found at $UBUNTU_SCRIPTS_DIR/tests"
+    fi
+    if [[ -d "$UBUNTU_SCRIPTS_DIR/helpers" ]]; then
+        cp -r "$UBUNTU_SCRIPTS_DIR/helpers/"* "/imagegeneration/helpers/"
+        echo_success "PowerShell helpers copied to /imagegeneration/helpers"
+    else
+        echo_warning "Helpers directory not found at $UBUNTU_SCRIPTS_DIR/helpers"
+    fi
+}
 
 # State file for tracking completion
 STATE_FILE="${STATE_FILE:-/tmp/provision-ubuntu-2204.state}"
 FORCE_RESTART="${FORCE_RESTART:-0}"
+
+# Run setup as a tracked step (before we use INSTALLER_SCRIPT_FOLDER)
+if [[ "$DRY_RUN" == "1" ]]; then
+    echo_dry_run "Would run setup-directories-and-toolset step"
+    # Set variables for dry run
+    TEMP_INSTALLER_DIR="/tmp/runner-images-installer"
+    INSTALLER_SCRIPT_FOLDER="$TEMP_INSTALLER_DIR"
+else
+    run_step "setup-directories-and-toolset" "command" "setup_directories_and_toolset"
+fi
 
 echo_header "Simplified Ubuntu 22.04 Runner Image Provisioning Started"
 echo_info "Repo root: $REPO_ROOT"
@@ -1077,14 +1089,14 @@ fi
 # Cloud tools
 if ! skip_if_disabled "$INSTALL_CLOUD_TOOLS" "Cloud tools"; then
     echo "Installing cloud tools..."
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-azcopy.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-azure-cli.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-azure-devops-cli.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-bicep.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-aliyun-cli.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-aws-tools.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-google-cloud-cli.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-heroku.sh"
+    run_step "install-azcopy" "script" "$UBUNTU_SCRIPTS_DIR/build/install-azcopy.sh"
+    run_step "install-azure-cli" "script" "$UBUNTU_SCRIPTS_DIR/build/install-azure-cli.sh"
+    run_step "install-azure-devops-cli" "script" "$UBUNTU_SCRIPTS_DIR/build/install-azure-devops-cli.sh"
+    run_step "install-bicep" "script" "$UBUNTU_SCRIPTS_DIR/build/install-bicep.sh"
+    run_step "install-aliyun-cli" "script" "$UBUNTU_SCRIPTS_DIR/build/install-aliyun-cli.sh"
+    run_step "install-aws-tools" "script" "$UBUNTU_SCRIPTS_DIR/build/install-aws-tools.sh"
+    run_step "install-google-cloud-cli" "script" "$UBUNTU_SCRIPTS_DIR/build/install-google-cloud-cli.sh"
+    run_step "install-heroku" "script" "$UBUNTU_SCRIPTS_DIR/build/install-heroku.sh"
 fi
 
 # Version control
@@ -1110,120 +1122,119 @@ fi
 # Programming languages and runtimes
 if ! skip_if_disabled "$INSTALL_LANGUAGES" "Programming languages and runtimes"; then
     echo "Installing programming languages..."
-    # run_script "$UBUNTU_SCRIPTS_DIR/build/install-haskell.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-java-tools.sh"
-    # run_script "$UBUNTU_SCRIPTS_DIR/build/install-leiningen.sh"
-    # run_script "$UBUNTU_SCRIPTS_DIR/build/install-kotlin.sh"
-    # run_script "$UBUNTU_SCRIPTS_DIR/build/install-mono.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-nvm.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-nodejs.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-php.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-ruby.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-rust.sh"
-    # run_script "$UBUNTU_SCRIPTS_DIR/build/install-julia.sh"
-    # run_script "$UBUNTU_SCRIPTS_DIR/build/install-sbt.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-python.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-pypy.sh"
+    # run_step "install-haskell" "script" "$UBUNTU_SCRIPTS_DIR/build/install-haskell.sh"
+    run_step "install-java-tools" "script" "$UBUNTU_SCRIPTS_DIR/build/install-java-tools.sh"
+    # run_step "install-leiningen" "script" "$UBUNTU_SCRIPTS_DIR/build/install-leiningen.sh"
+    # run_step "install-kotlin" "script" "$UBUNTU_SCRIPTS_DIR/build/install-kotlin.sh"
+    # run_step "install-mono" "script" "$UBUNTU_SCRIPTS_DIR/build/install-mono.sh"
+    run_step "install-nvm" "script" "$UBUNTU_SCRIPTS_DIR/build/install-nvm.sh"
+    run_step "install-nodejs" "script" "$UBUNTU_SCRIPTS_DIR/build/install-nodejs.sh"
+    run_step "install-php" "script" "$UBUNTU_SCRIPTS_DIR/build/install-php.sh"
+    run_step "install-ruby" "script" "$UBUNTU_SCRIPTS_DIR/build/install-ruby.sh"
+    run_step "install-rust" "script" "$UBUNTU_SCRIPTS_DIR/build/install-rust.sh"
+    # run_step "install-julia" "script" "$UBUNTU_SCRIPTS_DIR/build/install-julia.sh"
+    # run_step "install-sbt" "script" "$UBUNTU_SCRIPTS_DIR/build/install-sbt.sh"
+    run_step "install-python" "script" "$UBUNTU_SCRIPTS_DIR/build/install-python.sh"
+    run_step "install-pypy" "script" "$UBUNTU_SCRIPTS_DIR/build/install-pypy.sh"
 fi
 
 # Container tools
 if ! skip_if_disabled "$INSTALL_CONTAINER_TOOLS" "Container tools"; then
     echo "Installing container tools..."
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-container-tools.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-kubernetes-tools.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-oc-cli.sh"
+    run_step "install-container-tools" "script" "$UBUNTU_SCRIPTS_DIR/build/install-container-tools.sh"
+    run_step "install-kubernetes-tools" "script" "$UBUNTU_SCRIPTS_DIR/build/install-kubernetes-tools.sh"
+    run_step "install-oc-cli" "script" "$UBUNTU_SCRIPTS_DIR/build/install-oc-cli.sh"
     run_command "export DOCKERHUB_LOGIN=\"${DOCKERHUB_LOGIN:-}\" DOCKERHUB_PASSWORD=\"${DOCKERHUB_PASSWORD:-}\""
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-docker.sh"
+    run_step "install-docker" "script" "$UBUNTU_SCRIPTS_DIR/build/install-docker.sh"
 fi
 
 # Browsers
 if ! skip_if_disabled "$INSTALL_BROWSERS" "Web browsers"; then
     echo "Installing web browsers..."
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-firefox.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-microsoft-edge.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-google-chrome.sh"
+    run_step "install-firefox" "script" "$UBUNTU_SCRIPTS_DIR/build/install-firefox.sh"
+    run_step "install-microsoft-edge" "script" "$UBUNTU_SCRIPTS_DIR/build/install-microsoft-edge.sh"
+    run_step "install-google-chrome" "script" "$UBUNTU_SCRIPTS_DIR/build/install-google-chrome.sh"
 fi
 
 # Web servers
 if ! skip_if_disabled "$INSTALL_WEB_SERVERS" "Web servers"; then
     echo "Installing web servers..."
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-apache.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-nginx.sh"
+    run_step "install-apache" "script" "$UBUNTU_SCRIPTS_DIR/build/install-apache.sh"
+    run_step "install-nginx" "script" "$UBUNTU_SCRIPTS_DIR/build/install-nginx.sh"
 fi
 
 # Databases
 if ! skip_if_disabled "$INSTALL_DATABASES" "Database tools"; then
     echo "Installing database tools..."
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-mysql.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-mssql-tools.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-sqlpackage.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-postgresql.sh"
+    run_step "install-mysql" "script" "$UBUNTU_SCRIPTS_DIR/build/install-mysql.sh"
+    run_step "install-mssql-tools" "script" "$UBUNTU_SCRIPTS_DIR/build/install-mssql-tools.sh"
+    run_step "install-sqlpackage" "script" "$UBUNTU_SCRIPTS_DIR/build/install-sqlpackage.sh"
+    run_step "install-postgresql" "script" "$UBUNTU_SCRIPTS_DIR/build/install-postgresql.sh"
 fi
 
 # Infrastructure tools
 if ! skip_if_disabled "$INSTALL_INFRASTRUCTURE" "Infrastructure tools"; then
     echo "Installing infrastructure tools..."
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-terraform.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-packer.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-pulumi.sh"
+    run_step "install-terraform" "script" "$UBUNTU_SCRIPTS_DIR/build/install-terraform.sh"
+    run_step "install-packer" "script" "$UBUNTU_SCRIPTS_DIR/build/install-packer.sh"
+    run_step "install-pulumi" "script" "$UBUNTU_SCRIPTS_DIR/build/install-pulumi.sh"
 fi
 
 # Build tools and utilities
 if ! skip_if_disabled "$INSTALL_BUILD_TOOLS" "Build tools and utilities"; then
     echo "Installing build tools..."
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-bazel.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-oras-cli.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-vcpkg.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-yq.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-zstd.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-ninja.sh"
+    run_step "install-bazel" "script" "$UBUNTU_SCRIPTS_DIR/build/install-bazel.sh"
+    run_step "install-oras-cli" "script" "$UBUNTU_SCRIPTS_DIR/build/install-oras-cli.sh"
+    run_step "install-vcpkg" "script" "$UBUNTU_SCRIPTS_DIR/build/install-vcpkg.sh"
+    run_step "install-yq" "script" "$UBUNTU_SCRIPTS_DIR/build/install-yq.sh"
+    run_step "install-zstd" "script" "$UBUNTU_SCRIPTS_DIR/build/install-zstd.sh"
+    run_step "install-ninja" "script" "$UBUNTU_SCRIPTS_DIR/build/install-ninja.sh"
 fi
 
 # Data science and analysis
 if ! skip_if_disabled "$INSTALL_DATA_SCIENCE" "Data science tools"; then
     echo "Installing data science tools..."
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-miniconda.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-rlang.sh"
+    run_step "install-miniconda" "script" "$UBUNTU_SCRIPTS_DIR/build/install-miniconda.sh"
+    run_step "install-rlang" "script" "$UBUNTU_SCRIPTS_DIR/build/install-rlang.sh"
 fi
 
 # Android SDK
 if ! skip_if_disabled "$INSTALL_ANDROID" "Android SDK"; then
     echo "Installing Android SDK..."
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-android-sdk.sh"
+    run_step "install-android-sdk" "script" "$UBUNTU_SCRIPTS_DIR/build/install-android-sdk.sh"
 fi
 
 # Miscellaneous tools
 if ! skip_if_disabled "$INSTALL_MISC_TOOLS" "Miscellaneous tools"; then
     echo "Installing miscellaneous tools..."
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-pipx-packages.sh"
-    run_script "$UBUNTU_SCRIPTS_DIR/build/install-selenium.sh"
+    run_step "install-pipx-packages" "script" "$UBUNTU_SCRIPTS_DIR/build/install-pipx-packages.sh"
+    run_step "install-selenium" "script" "$UBUNTU_SCRIPTS_DIR/build/install-selenium.sh"
 
     # Install Homebrew (run as ubuntu user, not root)
     if [ "$EUID" -eq 0 ]; then
-        echo_info "Installing Homebrew as ubuntu user..."
         if [[ "$DRY_RUN" == "1" ]]; then
-            echo_dry_run "Would run: sudo -u ubuntu bash $UBUNTU_SCRIPTS_DIR/build/install-homebrew.sh"
+            echo_dry_run "Would run step: install-homebrew using sudo -u ubuntu"
         else
-            sudo -u ubuntu bash "$UBUNTU_SCRIPTS_DIR/build/install-homebrew.sh"
+            run_step "install-homebrew" "command" "sudo -u ubuntu bash '$UBUNTU_SCRIPTS_DIR/build/install-homebrew.sh'"
         fi
     else
-        run_script "$UBUNTU_SCRIPTS_DIR/build/install-homebrew.sh"
+        run_step "install-homebrew" "script" "$UBUNTU_SCRIPTS_DIR/build/install-homebrew.sh"
     fi
 fi
 
 # Configure DPKG (always run this as it's system configuration)
 echo_info "Configuring DPKG..."
-run_script "$UBUNTU_SCRIPTS_DIR/build/configure-dpkg.sh"
+run_step "configure-dpkg" "script" "$UBUNTU_SCRIPTS_DIR/build/configure-dpkg.sh"
 
 # Configure snap
 echo_info "Configuring snap..."
-run_script "$UBUNTU_SCRIPTS_DIR/build/configure-snap.sh"
+run_step "configure-snap" "script" "$UBUNTU_SCRIPTS_DIR/build/configure-snap.sh"
 
 # Configure toolset (requires PowerShell)
 if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell toolset configuration"; then
     echo_info "Configuring toolset..."
-    run_pwsh_script "$UBUNTU_SCRIPTS_DIR/build/Install-Toolset.ps1"
-    run_pwsh_script "$UBUNTU_SCRIPTS_DIR/build/Configure-Toolset.ps1"
+    run_step "install-toolset" "pwsh" "$UBUNTU_SCRIPTS_DIR/build/Install-Toolset.ps1"
+    run_step "configure-toolset" "pwsh" "$UBUNTU_SCRIPTS_DIR/build/Configure-Toolset.ps1"
 fi
 
 # Cleanup
