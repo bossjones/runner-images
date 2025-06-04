@@ -46,10 +46,12 @@ download_with_retry() {
 }
 
 get_toolset_value() {
+    set -x
     local toolset_path="${INSTALLER_SCRIPT_FOLDER}/toolset.json"
     local query=$1
 
     echo "$(jq -r "$query" $toolset_path)"
+    set +x
 }
 
 get_github_releases_by_version() {
