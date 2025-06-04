@@ -126,7 +126,7 @@ invoke_tests() {
 # Feature flags - control which software groups to install
 # Set to 0 to skip installation of that group
 INSTALL_CORE_TOOLS="${INSTALL_CORE_TOOLS:-1}"                    # Actions cache, runner package, APT common, etc.
-INSTALL_CLOUD_TOOLS="${INSTALL_CLOUD_TOOLS:-0}"                  # Azure CLI, AWS tools, Google Cloud CLI, etc.
+INSTALL_CLOUD_TOOLS="${INSTALL_CLOUD_TOOLS:-1}"                  # Azure CLI, AWS tools, Google Cloud CLI, etc.
 INSTALL_DEVELOPMENT_TOOLS="${INSTALL_DEVELOPMENT_TOOLS:-1}"      # Clang, Swift, CMake, CodeQL, compilers, etc.
 INSTALL_VERSION_CONTROL="${INSTALL_VERSION_CONTROL:-1}"          # Git, Git LFS, GitHub CLI
 INSTALL_BROWSERS="${INSTALL_BROWSERS:-1}"                        # Firefox, Chrome, Microsoft Edge
