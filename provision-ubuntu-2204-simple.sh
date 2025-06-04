@@ -963,8 +963,20 @@ UBUNTU_SCRIPTS_DIR="${REPO_ROOT}/images/ubuntu/scripts"
 IMAGE_VERSION="${IMAGE_VERSION:-dev}"
 IMAGE_OS="${IMAGE_OS:-ubuntu22}"
 
+# Cleanup function for imagegeneration directory
+cleanup_imagegeneration() {
+    echo_info "Cleaning up /imagegeneration directory..."
+    if [[ -d "/imagegeneration" ]]; then
+        rm -rf "/imagegeneration"
+        echo_success "Removed existing /imagegeneration directory"
+    fi
+}
+
 # Setup function for directories and toolset configuration
 setup_directories_and_toolset() {
+    # Always start with a clean imagegeneration directory
+    cleanup_imagegeneration
+    
     # Create the imagegeneration directory structure (matches Packer builds)
     echo_info "Setting up imagegeneration directory structure..."
     mkdir -p "/imagegeneration"
@@ -1009,15 +1021,28 @@ if [[ "$DRY_RUN" == "1" ]]; then
     echo_dry_run "Would run setup-directories-and-toolset step"
     INSTALLER_SCRIPT_FOLDER="$IMAGEGENERATION_DIR"
 else
-    # Check if setup was already completed and update INSTALLER_SCRIPT_FOLDER accordingly
+    # Check if setup was already completed
     if grep -q "^setup-directories-and-toolset$" "$STATE_FILE" 2>/dev/null; then
-        # Setup was already completed, just update the path
-        INSTALLER_SCRIPT_FOLDER="$IMAGEGENERATION_DIR"
-        echo_info "Setup step was already completed, using imagegeneration directory"
+        # Setup was marked complete, but ensure directory exists and has correct structure
+        echo_info "Setup step marked complete, verifying /imagegeneration directory structure..."
+        if [[ ! -f "/imagegeneration/toolset.json" ]] || [[ ! -d "/imagegeneration/tests" ]] || [[ ! -d "/imagegeneration/helpers" ]]; then
+            echo_warning "Incomplete /imagegeneration directory detected, forcing rebuild..."
+            # Remove the step from state file to force re-run
+            grep -v "^setup-directories-and-toolset$" "$STATE_FILE" > "$STATE_FILE.tmp" 2>/dev/null || touch "$STATE_FILE.tmp"
+            mv "$STATE_FILE.tmp" "$STATE_FILE"
+            run_step "setup-directories-and-toolset" "command" "setup_directories_and_toolset"
+        else
+            echo_success "Directory structure verified, using existing /imagegeneration"
+            INSTALLER_SCRIPT_FOLDER="$IMAGEGENERATION_DIR"
+        fi
     else
-        # Run the setup step
+        # Run setup for the first time
+        echo_info "Running setup to create /imagegeneration directory..."
         run_step "setup-directories-and-toolset" "command" "setup_directories_and_toolset"
     fi
+    
+    # Ensure INSTALLER_SCRIPT_FOLDER points to imagegeneration after setup
+    INSTALLER_SCRIPT_FOLDER="$IMAGEGENERATION_DIR"
 fi
 
 echo_header "Simplified Ubuntu 22.04 Runner Image Provisioning Started"
@@ -1032,13 +1057,16 @@ fi
 
 # Initialize state file or show resumption status
 if [[ "$FORCE_RESTART" == "1" ]]; then
-    echo_step "FORCE RESTART - Removing existing state file"
+    echo_step "FORCE RESTART - Removing existing state file and cleaning directories"
     if [[ -f "$STATE_FILE" ]]; then
         rm -f "$STATE_FILE"
         echo_success "Removed existing state file: $STATE_FILE"
     else
         echo_info "No existing state file to remove"
     fi
+    
+    # Also clean up imagegeneration directory on force restart
+    cleanup_imagegeneration
 elif [[ -f "$STATE_FILE" ]]; then
     completed_steps=$(wc -l < "$STATE_FILE" 2>/dev/null || echo "0")
     echo_step "RESUMING - Found state file with $completed_steps completed steps"
@@ -1070,6 +1098,7 @@ export -f echo_success
 export -f echo_warning
 export -f echo_error
 export -f echo_step
+export -f cleanup_imagegeneration
 
 export HELPER_SCRIPTS=$HELPER_SCRIPTS
 export INSTALLER_SCRIPT_FOLDER=$INSTALLER_SCRIPT_FOLDER
