@@ -330,11 +330,22 @@ check_and_install_package() {
 
 # Function to ensure helper scripts are available
 ensure_helper_scripts() {
+    # Safety check: ensure basic variables are set
+    if [[ -z "$REPO_ROOT" ]] || [[ -z "$UBUNTU_SCRIPTS_DIR" ]]; then
+        echo_error "Basic variables not set, cannot ensure helper scripts"
+        return 1
+    fi
+    
     # Ensure the /imagegeneration/helpers directory exists and has the required files
     if [[ ! -d "/imagegeneration/helpers" ]]; then
         echo_error "Helper scripts directory missing: /imagegeneration/helpers"
         echo_info "Re-running setup to create helper scripts..."
+        # Temporarily restore original paths for setup
+        local temp_installer_folder="$INSTALLER_SCRIPT_FOLDER"
+        INSTALLER_SCRIPT_FOLDER="${REPO_ROOT}/images/ubuntu/toolsets"
         setup_directories_and_toolset
+        # Restore the updated path
+        INSTALLER_SCRIPT_FOLDER="$temp_installer_folder"
     fi
     
     # Check for critical helper files and copy them if missing
@@ -1235,8 +1246,8 @@ if [[ "$FORCE_RESTART" == "1" ]]; then
         echo_info "No existing state file to remove"
     fi
     
-    # Also clean up imagegeneration directory on force restart
-    cleanup_imagegeneration
+    # Note: imagegeneration directory cleanup is handled by setup function
+    # cleanup_imagegeneration  # Removed - this was deleting the directory we just created!
 elif [[ -f "$STATE_FILE" ]]; then
     completed_steps=$(wc -l < "$STATE_FILE" 2>/dev/null || echo "0")
     echo_step "RESUMING - Found state file with $completed_steps completed steps"
