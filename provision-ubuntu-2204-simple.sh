@@ -72,8 +72,8 @@ invoke_tests() {
     local test_name="$1"
     local test_file="$2"
 
-    # Determine the correct test directory path
-    local test_dir="$HELPER_SCRIPTS/../tests"
+    # Use the absolute path where we copied the tests
+    local test_dir="/imagegeneration/tests"
     local helpers_file="$test_dir/Helpers.psm1"
     local test_file_path="$test_dir/${test_name}.Tests.ps1"
 
@@ -983,8 +983,13 @@ run_command "export DEBIAN_FRONTEND=noninteractive"
 run_command "export IMAGE_VERSION=$IMAGE_VERSION"
 run_command "export IMAGE_OS=$IMAGE_OS"
 
-# Export the invoke_tests function so it's available to installation scripts
+# Export the invoke_tests function and echo functions so they're available to installation scripts
 export -f invoke_tests
+export -f echo_info
+export -f echo_success
+export -f echo_warning
+export -f echo_error
+export -f echo_step
 
 # Install comprehensive prerequisites as a tracked step
 run_step "install-prerequisites" "command" "install_prerequisites_step"
