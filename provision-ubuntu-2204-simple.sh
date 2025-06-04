@@ -1206,6 +1206,45 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
                 } else { 
                     Write-Host 'False' -ForegroundColor Red 
                 }
+                
+                # Check PowerShell module availability and paths
+                Write-Host ''
+                Write-Host 'PowerShell Module Environment:' -ForegroundColor Yellow
+                Write-Host '  PowerShell Module Paths:'
+                foreach (\$path in \$env:PSModulePath.Split(':')) {
+                    Write-Host \"    \$path\" -ForegroundColor Magenta
+                }
+                
+                Write-Host '  Available PowerShell Modules:'
+                \$modules = Get-Module -ListAvailable | Group-Object Name | ForEach-Object { \$_.Name }
+                if (\$modules -contains 'Pester') {
+                    Write-Host '    Pester: ' -NoNewline
+                    Write-Host 'Available' -ForegroundColor Green
+                    \$pesterVersions = Get-Module -ListAvailable -Name Pester | ForEach-Object { \$_.Version }
+                    Write-Host \"      Versions: \$(\$pesterVersions -join ', ')\" -ForegroundColor Cyan
+                } else {
+                    Write-Host '    Pester: ' -NoNewline
+                    Write-Host 'NOT AVAILABLE' -ForegroundColor Red
+                }
+                
+                if (\$modules -contains 'PSScriptAnalyzer') {
+                    Write-Host '    PSScriptAnalyzer: ' -NoNewline
+                    Write-Host 'Available' -ForegroundColor Green
+                } else {
+                    Write-Host '    PSScriptAnalyzer: ' -NoNewline
+                    Write-Host 'NOT AVAILABLE' -ForegroundColor Red
+                }
+                
+                # Test if we can actually import Pester
+                Write-Host '  Pester Import Test:'
+                try {
+                    Import-Module Pester -Force -ErrorAction Stop
+                    Write-Host '    Import successful' -ForegroundColor Green
+                    \$pesterCommands = Get-Command -Module Pester | Measure-Object
+                    Write-Host \"    Pester commands available: \$(\$pesterCommands.Count)\" -ForegroundColor Cyan
+                } catch {
+                    Write-Host \"    Import failed: \$_\" -ForegroundColor Red
+                }
             "
         else
             echo_warning "PowerShell not available for pre-flight check"
@@ -1219,7 +1258,8 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
             echo_info "  1. HELPER_SCRIPTS points to /imagegeneration/helpers"
             echo_info "  2. INSTALLER_SCRIPT_FOLDER points to /imagegeneration" 
             echo_info "  3. Helpers.psm1, toolset.json, tests directory, and PowerShellModules test all show 'True'"
-            echo_info "  4. All paths are colored GREEN (good) and no RED 'False' values appear"
+            echo_info "  4. Pester module shows 'Available' and 'Import successful'"
+            echo_info "  5. All paths are colored GREEN (good) and no RED 'False' or 'NOT AVAILABLE' values appear"
             echo ""
             while true; do
                 read -p "Continue with Azure PowerShell modules installation? [y/n]: " yn
