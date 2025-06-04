@@ -1184,6 +1184,28 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
                 } else { 
                     Write-Host 'False' -ForegroundColor Red 
                 }
+                
+                # Additional checks for tests directory structure
+                \$testsDir = '/imagegeneration/tests'
+                \$azModulesTest = '/imagegeneration/tests/PowerShellModules.Tests.ps1'
+                
+                Write-Host '  Tests directory: ' -NoNewline
+                Write-Host \$testsDir -ForegroundColor Cyan
+                Write-Host '  Tests directory exists: ' -NoNewline
+                if (Test-Path \$testsDir) { 
+                    Write-Host 'True' -ForegroundColor Green 
+                } else { 
+                    Write-Host 'False' -ForegroundColor Red 
+                }
+                
+                Write-Host '  PowerShellModules test file: ' -NoNewline
+                Write-Host \$azModulesTest -ForegroundColor Cyan
+                Write-Host '  PowerShellModules test exists: ' -NoNewline
+                if (Test-Path \$azModulesTest) { 
+                    Write-Host 'True' -ForegroundColor Green 
+                } else { 
+                    Write-Host 'False' -ForegroundColor Red 
+                }
             "
         else
             echo_warning "PowerShell not available for pre-flight check"
@@ -1196,7 +1218,8 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
             echo_info "Please verify that:"
             echo_info "  1. HELPER_SCRIPTS points to /imagegeneration/helpers"
             echo_info "  2. INSTALLER_SCRIPT_FOLDER points to /imagegeneration" 
-            echo_info "  3. Both Helpers.psm1 and toolset.json show 'True' for existence"
+            echo_info "  3. Helpers.psm1, toolset.json, tests directory, and PowerShellModules test all show 'True'"
+            echo_info "  4. All paths are colored GREEN (good) and no RED 'False' values appear"
             echo ""
             while true; do
                 read -p "Continue with Azure PowerShell modules installation? [y/n]: " yn
