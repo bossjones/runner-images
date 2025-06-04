@@ -159,7 +159,7 @@ invoke_tests() {
             # Always exit with success
             exit 0
         " 2>/dev/null
-        
+
         if [ $? -eq 0 ]; then
             echo_success "Tests for $test_name completed (or skipped safely)"
         else
@@ -968,7 +968,7 @@ setup_directories_and_toolset() {
     # Create a temporary directory for installer scripts and copy the toolset file
     TEMP_INSTALLER_DIR="/tmp/runner-images-installer"
     mkdir -p "$TEMP_INSTALLER_DIR"
-    
+
     # Copy the appropriate toolset file to the expected location
     if [[ -f "$INSTALLER_SCRIPT_FOLDER/toolset-2204.json" ]]; then
         echo_info "Setting up toolset configuration for Ubuntu 22.04"
@@ -979,7 +979,7 @@ setup_directories_and_toolset() {
         echo_error "Cannot find toolset-2204.json file at $INSTALLER_SCRIPT_FOLDER/toolset-2204.json"
         return 1
     fi
-    
+
     # Create the expected PowerShell tests directory and copy tests there
     echo_info "Setting up PowerShell tests directory..."
     mkdir -p "/imagegeneration/tests"
@@ -1100,7 +1100,9 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
 
     # Install Azure modules separately (they're large and slow)
     if ! skip_if_disabled "$INSTALL_AZURE_MODULES" "Azure PowerShell modules"; then
+        set -x
         run_step "install-powershell-az-modules" "pwsh" "$UBUNTU_SCRIPTS_DIR/build/Install-PowerShellAzModules.ps1"
+        set +x
     fi
 fi
 
