@@ -760,6 +760,21 @@ UBUNTU_SCRIPTS_DIR="${REPO_ROOT}/images/ubuntu/scripts"
 IMAGE_VERSION="${IMAGE_VERSION:-dev}"
 IMAGE_OS="${IMAGE_OS:-ubuntu22}"
 
+# Create a temporary directory for installer scripts and copy the toolset file
+TEMP_INSTALLER_DIR="/tmp/runner-images-installer"
+mkdir -p "$TEMP_INSTALLER_DIR"
+
+# Copy the appropriate toolset file to the expected location
+if [[ -f "$INSTALLER_SCRIPT_FOLDER/toolset-2204.json" ]]; then
+    echo_info "Setting up toolset configuration for Ubuntu 22.04"
+    cp "$INSTALLER_SCRIPT_FOLDER/toolset-2204.json" "$TEMP_INSTALLER_DIR/toolset.json"
+    # Update INSTALLER_SCRIPT_FOLDER to point to our temp directory
+    INSTALLER_SCRIPT_FOLDER="$TEMP_INSTALLER_DIR"
+else
+    echo_error "Cannot find toolset-2204.json file at $INSTALLER_SCRIPT_FOLDER/toolset-2204.json"
+    exit 1
+fi
+
 # State file for tracking completion
 STATE_FILE="${STATE_FILE:-/tmp/provision-ubuntu-2204.state}"
 FORCE_RESTART="${FORCE_RESTART:-0}"
@@ -984,7 +999,6 @@ run_script "$UBUNTU_SCRIPTS_DIR/build/configure-snap.sh"
 # Configure toolset (requires PowerShell)
 if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell toolset configuration"; then
     echo_info "Configuring toolset..."
-    run_command "cp $REPO_ROOT/images/ubuntu/toolsets/toolset-2204.json $INSTALLER_SCRIPT_FOLDER/toolset.json"
     run_pwsh_script "$UBUNTU_SCRIPTS_DIR/build/Install-Toolset.ps1"
     run_pwsh_script "$UBUNTU_SCRIPTS_DIR/build/Configure-Toolset.ps1"
 fi
