@@ -1020,6 +1020,7 @@ IMAGEGENERATION_DIR="/imagegeneration"
 if [[ "$DRY_RUN" == "1" ]]; then
     echo_dry_run "Would run setup-directories-and-toolset step"
     INSTALLER_SCRIPT_FOLDER="$IMAGEGENERATION_DIR"
+    HELPER_SCRIPTS="/imagegeneration/helpers"
 else
     # Check if setup was already completed
     if grep -q "^setup-directories-and-toolset$" "$STATE_FILE" 2>/dev/null; then
@@ -1034,6 +1035,7 @@ else
         else
             echo_success "Directory structure verified, using existing /imagegeneration"
             INSTALLER_SCRIPT_FOLDER="$IMAGEGENERATION_DIR"
+            HELPER_SCRIPTS="/imagegeneration/helpers"
         fi
     else
         # Run setup for the first time
@@ -1043,6 +1045,8 @@ else
     
     # Ensure INSTALLER_SCRIPT_FOLDER points to imagegeneration after setup
     INSTALLER_SCRIPT_FOLDER="$IMAGEGENERATION_DIR"
+    # Also update HELPER_SCRIPTS to point to the copied helpers in imagegeneration
+    HELPER_SCRIPTS="/imagegeneration/helpers"
 fi
 
 echo_header "Simplified Ubuntu 22.04 Runner Image Provisioning Started"
@@ -1050,6 +1054,21 @@ echo_info "Repo root: $REPO_ROOT"
 echo_info "Helper scripts: $HELPER_SCRIPTS"
 echo_info "Installer scripts: $INSTALLER_SCRIPT_FOLDER"
 echo_info "State file: $STATE_FILE"
+
+# Show environment verification for debugging
+echo_info "Environment verification:"
+echo_info "  HELPER_SCRIPTS: $HELPER_SCRIPTS"
+echo_info "  INSTALLER_SCRIPT_FOLDER: $INSTALLER_SCRIPT_FOLDER"
+if [[ -f "$INSTALLER_SCRIPT_FOLDER/toolset.json" ]]; then
+    echo_success "  ✓ toolset.json found at $INSTALLER_SCRIPT_FOLDER/toolset.json"
+else
+    echo_error "  ✗ toolset.json missing at $INSTALLER_SCRIPT_FOLDER/toolset.json"
+fi
+if [[ -f "$HELPER_SCRIPTS/../tests/Helpers.psm1" ]]; then
+    echo_success "  ✓ Helpers.psm1 found at $HELPER_SCRIPTS/../tests/Helpers.psm1"
+else
+    echo_error "  ✗ Helpers.psm1 missing at $HELPER_SCRIPTS/../tests/Helpers.psm1"
+fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
     echo_warning "DRY RUN MODE ENABLED - No commands will be executed"
