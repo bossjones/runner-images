@@ -64,6 +64,29 @@ ENABLE_DOCTOR="${ENABLE_DOCTOR:-0}"
 # Color settings
 DISABLE_COLORS="${DISABLE_COLORS:-0}"
 
+# Export critical environment variables early
+export DEBIAN_FRONTEND=noninteractive
+
+# Define invoke_tests function that installation scripts expect
+invoke_tests() {
+    local test_name="$1"
+    local test_file="$2"
+
+    # Only run tests if PowerShell is available and tests directory exists
+    if command -v pwsh >/dev/null 2>&1 && [[ -f "$HELPER_SCRIPTS/../tests/Helpers.psm1" ]]; then
+        echo_info "Running tests for $test_name..."
+        if [[ "$DRY_RUN" == "1" ]]; then
+            echo_dry_run "Would run tests for $test_name"
+            return 0
+        fi
+
+        # Run the PowerShell tests
+        pwsh -Command "Import-Module '$HELPER_SCRIPTS/../tests/Helpers.psm1' -DisableNameChecking; Invoke-PesterTests -TestFile \"$test_name\" -TestName \"$test_file\""
+    else
+        echo_info "Skipping tests for $test_name (PowerShell or test framework not available)"
+    fi
+}
+
 # Feature flags - control which software groups to install
 # Set to 0 to skip installation of that group
 INSTALL_CORE_TOOLS="${INSTALL_CORE_TOOLS:-1}"                    # Actions cache, runner package, APT common, etc.
@@ -78,7 +101,7 @@ INSTALL_BUILD_TOOLS="${INSTALL_BUILD_TOOLS:-1}"                  # Bazel, vcpkg,
 INSTALL_CONTAINER_TOOLS="${INSTALL_CONTAINER_TOOLS:-1}"          # Docker, container tools, Kubernetes tools
 INSTALL_INFRASTRUCTURE="${INSTALL_INFRASTRUCTURE:-0}"            # Terraform, Packer, Pulumi
 INSTALL_ANDROID="${INSTALL_ANDROID:-0}"                          # Android SDK
-INSTALL_POWERSHELL="${INSTALL_POWERSHELL:-0}"                    # PowerShell and PowerShell modules
+INSTALL_POWERSHELL="${INSTALL_POWERSHELL:-1}"                    # PowerShell and PowerShell modules
 INSTALL_DATA_SCIENCE="${INSTALL_DATA_SCIENCE:-0}"                # Miniconda, R language
 INSTALL_MISC_TOOLS="${INSTALL_MISC_TOOLS:-1}"                    # Selenium, pipx packages, Homebrew
 
@@ -194,11 +217,11 @@ check_and_install_package() {
     # Update package list if not done recently
     if [[ ! -f /var/lib/apt/periodic/update-success-stamp ]] || [[ $(find /var/lib/apt/periodic/update-success-stamp -mmin +60) ]]; then
         echo_info "Updating package lists..."
-        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get update -qq
     fi
 
     # Install the package
-    if apt-get install -y "$package"; then
+    if DEBIAN_FRONTEND=noninteractive apt-get install -y "$package"; then
         echo_success "Successfully installed $package"
 
         # Verify the command is now available
@@ -703,10 +726,10 @@ ensure_essential_packages() {
             echo_step "AUTO-INSTALLING missing packages..."
 
             if [[ "$DRY_RUN" != "1" ]]; then
-                apt-get update -qq
+                DEBIAN_FRONTEND=noninteractive apt-get update -qq
                 for pkg in "${missing_packages[@]}"; do
                     echo_info "Installing $pkg..."
-                    apt-get install -y "$pkg"
+                    DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg"
                 done
                 echo_success "Essential packages installed"
             else
