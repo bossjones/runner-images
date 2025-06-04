@@ -1153,6 +1153,58 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
 
     # Install Azure modules separately (they're large and slow)
     if ! skip_if_disabled "$INSTALL_AZURE_MODULES" "Azure PowerShell modules"; then
+        echo_info "Pre-flight check: Verifying PowerShell environment variables..."
+        echo_info "  HELPER_SCRIPTS: $HELPER_SCRIPTS"
+        echo_info "  INSTALLER_SCRIPT_FOLDER: $INSTALLER_SCRIPT_FOLDER"
+        
+        # Verify PowerShell can see the environment variables correctly
+        echo_info "PowerShell environment variable verification:"
+        if command -v pwsh >/dev/null 2>&1; then
+            pwsh -c "Write-Host '  HELPER_SCRIPTS from PowerShell:' \$env:HELPER_SCRIPTS"
+            pwsh -c "Write-Host '  INSTALLER_SCRIPT_FOLDER from PowerShell:' \$env:INSTALLER_SCRIPT_FOLDER"
+            
+            # Test the actual paths that will be used
+            pwsh -c "
+                \$helpersPath = '\$env:HELPER_SCRIPTS/../tests/Helpers.psm1'
+                \$toolsetPath = '\$env:INSTALLER_SCRIPT_FOLDER/toolset.json'
+                Write-Host '  Computed Helpers.psm1 path:' \$helpersPath
+                Write-Host '  Helpers.psm1 exists:' (Test-Path \$helpersPath)
+                Write-Host '  Computed toolset.json path:' \$toolsetPath  
+                Write-Host '  toolset.json exists:' (Test-Path \$toolsetPath)
+            "
+        else
+            echo_warning "PowerShell not available for pre-flight check"
+        fi
+        
+        # Interactive confirmation to review the debug output
+        if [[ "$DRY_RUN" != "1" ]]; then
+            echo ""
+            echo_step "CONFIRMATION: Review the environment variables above"
+            echo_info "Please verify that:"
+            echo_info "  1. HELPER_SCRIPTS points to /imagegeneration/helpers"
+            echo_info "  2. INSTALLER_SCRIPT_FOLDER points to /imagegeneration" 
+            echo_info "  3. Both Helpers.psm1 and toolset.json show 'True' for existence"
+            echo ""
+            while true; do
+                read -p "Continue with Azure PowerShell modules installation? [y/n]: " yn
+                case $yn in
+                    [Yy]* )
+                        echo_success "Continuing with installation..."
+                        break
+                        ;;
+                    [Nn]* )
+                        echo_error "Installation cancelled by user"
+                        echo_info "You can investigate the environment and restart the script"
+                        exit 1
+                        ;;
+                    * )
+                        echo_warning "Please answer yes (y) or no (n)"
+                        ;;
+                esac
+            done
+        fi
+        
+        echo_info "Starting Azure PowerShell modules installation..."
         set -x
         run_step "install-powershell-az-modules" "pwsh" "$UBUNTU_SCRIPTS_DIR/build/Install-PowerShellAzModules.ps1"
         set +x
