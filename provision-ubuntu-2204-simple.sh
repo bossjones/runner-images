@@ -12,6 +12,7 @@
 # Basic Usage:
 #   sudo ./provision-ubuntu-2204-simple.sh                           # Normal execution
 #   sudo DRY_RUN=1 ./provision-ubuntu-2204-simple.sh                 # Dry run mode (shows commands without executing)
+#   sudo ENABLE_DOCTOR=1 ./provision-ubuntu-2204-simple.sh           # Doctor mode (check environment and requirements)
 #
 # State management (resumption support):
 #   sudo ./provision-ubuntu-2204-simple.sh                           # Resume from last failed step (if any)
@@ -30,6 +31,9 @@
 #   INSTALL_POWERSHELL, INSTALL_DATA_SCIENCE, INSTALL_MISC_TOOLS
 #
 # Examples:
+#   # Check environment and requirements before running
+#   sudo ENABLE_DOCTOR=1 ./provision-ubuntu-2204-simple.sh
+#
 #   # Install only core tools and languages, skip everything else
 #   sudo INSTALL_CLOUD_TOOLS=0 INSTALL_BROWSERS=0 INSTALL_ANDROID=0 ./provision-ubuntu-2204-simple.sh
 #
@@ -41,11 +45,17 @@
 #
 #   # Start completely fresh
 #   sudo FORCE_RESTART=1 ./provision-ubuntu-2204-simple.sh
+#
+#   # Provide Docker Hub credentials to avoid rate limits
+#   sudo DOCKERHUB_LOGIN=myuser DOCKERHUB_PASSWORD=mypass ./provision-ubuntu-2204-simple.sh
 
 set -e
 
 # Check if running in dry-run mode
 DRY_RUN="${DRY_RUN:-0}"
+
+# Doctor mode - check environment and requirements
+ENABLE_DOCTOR="${ENABLE_DOCTOR:-0}"
 
 # Feature flags - control which software groups to install
 # Set to 0 to skip installation of that group
@@ -163,6 +173,338 @@ skip_if_disabled() {
     return 1
 }
 
+# Doctor function to check environment and requirements
+run_doctor() {
+    echo "=== DOCTOR MODE: Checking Environment and Requirements ==="
+
+    local warnings=0
+    local errors=0
+
+    # Check if running as root
+    if [[ "$EUID" -ne 0 ]]; then
+        echo "❌ ERROR: Script must be run with sudo privileges"
+        ((errors++))
+    else
+        echo "✅ Running with sudo privileges"
+    fi
+
+    # Check if in correct directory
+    if [[ ! -f "images/ubuntu/scripts/build/install-actions-cache.sh" ]]; then
+        echo "❌ ERROR: Must run from runner-images repo root directory"
+        echo "   Expected to find: images/ubuntu/scripts/build/install-actions-cache.sh"
+        ((errors++))
+    else
+        echo "✅ Running from correct directory (runner-images repo root)"
+    fi
+
+    # Check disk space (recommend at least 20GB free)
+    available_space=$(df . -BG | awk 'NR==2{print $4}' | sed 's/G//')
+    if [[ $available_space -lt 20 ]]; then
+        echo "⚠️  WARNING: Only ${available_space}GB free space available"
+        echo "   Recommend at least 20GB for full installation"
+        ((warnings++))
+    else
+        echo "✅ Sufficient disk space: ${available_space}GB available"
+    fi
+
+    # Check internet connectivity to critical services
+    echo ""
+    echo "=== Network Connectivity ==="
+    local critical_urls=("https://github.com" "https://api.github.com")
+    local optional_urls=()
+
+    # Add URLs based on enabled features
+    if is_enabled "$INSTALL_LANGUAGES"; then
+        optional_urls+=("https://downloads.python.org" "https://sh.rustup.rs" "https://getcomposer.org")
+    fi
+
+    if is_enabled "$INSTALL_DEVELOPMENT_TOOLS"; then
+        optional_urls+=("https://packages.microsoft.com" "https://swift.org")
+    fi
+
+    if is_enabled "$INSTALL_BROWSERS"; then
+        optional_urls+=("https://dl.google.com" "https://packages.microsoft.com")
+    fi
+
+    # Test critical URLs
+    for url in "${critical_urls[@]}"; do
+        if curl -s --connect-timeout 5 "$url" >/dev/null; then
+            echo "✅ Connected to $url"
+        else
+            echo "❌ ERROR: Cannot connect to $url"
+            echo "   This is required for basic functionality"
+            ((errors++))
+        fi
+    done
+
+    # Test optional URLs
+    if [[ ${#optional_urls[@]} -gt 0 ]]; then
+        for url in "${optional_urls[@]}"; do
+            if curl -s --connect-timeout 5 "$url" >/dev/null; then
+                echo "✅ Connected to $url"
+            else
+                echo "⚠️  WARNING: Cannot connect to $url"
+                echo "   Some installations may fail"
+                ((warnings++))
+            fi
+        done
+    fi
+
+    # Check required commands for basic functionality
+    local basic_commands=("curl" "wget" "gpg" "apt-get" "jq" "unzip" "tar")
+    echo ""
+    echo "=== Basic System Commands ==="
+    for cmd in "${basic_commands[@]}"; do
+        if command -v "$cmd" >/dev/null 2>&1; then
+            echo "✅ Found required command: $cmd"
+        else
+            echo "❌ ERROR: Missing required command: $cmd"
+            ((errors++))
+        fi
+    done
+
+    # Check additional tools needed for enabled features
+    local optional_commands=()
+
+    # Development tools requirements
+    if is_enabled "$INSTALL_DEVELOPMENT_TOOLS"; then
+        optional_commands+=("make" "rsync" "parallel" "lsb_release")
+    fi
+
+    # Language-specific requirements
+    if is_enabled "$INSTALL_LANGUAGES"; then
+        optional_commands+=("python3" "pip3" "shasum")
+    fi
+
+    if [[ ${#optional_commands[@]} -gt 0 ]]; then
+        echo ""
+        echo "=== Feature-specific Commands ==="
+        for cmd in "${optional_commands[@]}"; do
+            if command -v "$cmd" >/dev/null 2>&1; then
+                echo "✅ Found optional command: $cmd"
+            else
+                echo "⚠️  WARNING: Missing optional command: $cmd"
+                echo "   Some installations may fail without this command"
+                ((warnings++))
+            fi
+        done
+    fi
+
+    # Docker-specific checks if container tools will be installed
+    if is_enabled "$INSTALL_CONTAINER_TOOLS"; then
+        echo ""
+        echo "=== Docker Installation Checks ==="
+
+        # Check if Docker credentials are provided
+        if [[ -n "${DOCKERHUB_LOGIN:-}" ]] && [[ -n "${DOCKERHUB_PASSWORD:-}" ]]; then
+            echo "✅ Docker Hub credentials provided (will avoid rate limits)"
+            echo "   Login: ${DOCKERHUB_LOGIN}"
+        else
+            echo "⚠️  WARNING: No Docker Hub credentials provided"
+            echo "   Docker installation will work but may hit rate limits"
+            echo "   To provide credentials, set DOCKERHUB_LOGIN and DOCKERHUB_PASSWORD"
+            ((warnings++))
+        fi
+
+        # Check if we want to pull images
+        if [[ "${DOCKERHUB_PULL_IMAGES:-yes}" == "yes" ]]; then
+            echo "✅ Docker images will be pulled during installation"
+        else
+            echo "ℹ️  Docker images will not be pulled (DOCKERHUB_PULL_IMAGES=no)"
+        fi
+    fi
+
+    # PowerShell-specific checks
+    if is_enabled "$INSTALL_POWERSHELL"; then
+        echo ""
+        echo "=== PowerShell Installation Checks ==="
+        echo "✅ PowerShell will be installed and configured"
+        echo "   This enables toolset configuration and software reporting"
+    else
+        echo ""
+        echo "=== PowerShell Installation Checks ==="
+        echo "⚠️  WARNING: PowerShell installation disabled"
+        echo "   Some features like toolset configuration will be skipped"
+        ((warnings++))
+    fi
+
+    # Homebrew-specific checks
+    if is_enabled "$INSTALL_MISC_TOOLS"; then
+        echo ""
+        echo "=== Homebrew Installation Checks ==="
+        if [[ "$EUID" -eq 0 ]]; then
+            echo "⚠️  WARNING: Running as root - Homebrew installation will be skipped"
+            echo "   Homebrew should be installed manually as regular user after provisioning"
+            ((warnings++))
+        else
+            echo "✅ Running as regular user - Homebrew can be installed"
+        fi
+    fi
+
+    # Environment variable checks
+    echo ""
+    echo "=== Environment Variables ==="
+
+    # Check critical environment variables
+    local env_vars=("HOME" "USER" "PATH")
+    for var in "${env_vars[@]}"; do
+        if [[ -n "${!var}" ]]; then
+            echo "✅ $var is set: ${!var}"
+        else
+            echo "❌ ERROR: $var is not set"
+            ((errors++))
+        fi
+    done
+
+    # Check directory permissions for key system paths
+    echo ""
+    echo "=== Directory Permissions ==="
+
+    local check_dirs=(
+        "/usr/local/bin:Write access for binary installations"
+        "/etc/environment:Write access for environment variables"
+        "/tmp:Write access for temporary files"
+    )
+
+    if is_enabled "$INSTALL_DEVELOPMENT_TOOLS"; then
+        check_dirs+=("/usr/share:Write access for .NET installation")
+    fi
+
+    for dir_info in "${check_dirs[@]}"; do
+        local dir="${dir_info%%:*}"
+        local desc="${dir_info##*:}"
+
+        if [[ -d "$dir" ]] && [[ -w "$dir" ]]; then
+            echo "✅ $dir is writable ($desc)"
+        elif [[ -d "$dir" ]]; then
+            echo "⚠️  WARNING: $dir exists but not writable ($desc)"
+            echo "   May need sudo privileges during installation"
+            ((warnings++))
+        else
+            echo "❌ ERROR: $dir does not exist ($desc)"
+            ((errors++))
+        fi
+    done
+
+    # Ubuntu version and architecture checks
+    echo ""
+    echo "=== System Information ==="
+
+    if command -v lsb_release >/dev/null 2>&1; then
+        local ubuntu_version=$(lsb_release -rs 2>/dev/null)
+        echo "✅ Ubuntu version: $ubuntu_version"
+
+        # Warn about version-specific requirements
+        if [[ "$ubuntu_version" == "24.04" ]]; then
+            echo "ℹ️  Ubuntu 24.04 detected - will configure pip with break-system-packages"
+        fi
+    else
+        echo "⚠️  WARNING: Cannot determine Ubuntu version"
+        ((warnings++))
+    fi
+
+    local arch=$(uname -m)
+    echo "ℹ️  System architecture: $arch"
+    if [[ "$arch" != "x86_64" ]]; then
+        echo "⚠️  WARNING: Non-x86_64 architecture detected"
+        echo "   Some packages may not be available for this architecture"
+        ((warnings++))
+    fi
+
+    # State file checks
+    echo ""
+    echo "=== State Management Checks ==="
+    if [[ -f "$STATE_FILE" ]]; then
+        completed_steps=$(wc -l < "$STATE_FILE" 2>/dev/null || echo "0")
+        echo "ℹ️  Found existing state file with $completed_steps completed steps"
+        echo "   Location: $STATE_FILE"
+        echo "   Script will resume from last incomplete step"
+    else
+        echo "ℹ️  No existing state file found"
+        echo "   Will start fresh installation"
+    fi
+
+    if [[ -w "$(dirname "$STATE_FILE")" ]]; then
+        echo "✅ State file location is writable"
+    else
+        echo "❌ ERROR: Cannot write to state file location: $(dirname "$STATE_FILE")"
+        ((errors++))
+    fi
+
+    # Feature flag summary
+    echo ""
+    echo "=== Installation Plan Summary ==="
+    local enabled_features=()
+    local disabled_features=()
+
+    local feature_flags=(
+        "INSTALL_CORE_TOOLS:Core Tools"
+        "INSTALL_CLOUD_TOOLS:Cloud Tools"
+        "INSTALL_DEVELOPMENT_TOOLS:Development Tools"
+        "INSTALL_VERSION_CONTROL:Version Control"
+        "INSTALL_BROWSERS:Browsers"
+        "INSTALL_LANGUAGES:Programming Languages"
+        "INSTALL_DATABASES:Databases"
+        "INSTALL_WEB_SERVERS:Web Servers"
+        "INSTALL_BUILD_TOOLS:Build Tools"
+        "INSTALL_CONTAINER_TOOLS:Container Tools"
+        "INSTALL_INFRASTRUCTURE:Infrastructure Tools"
+        "INSTALL_ANDROID:Android SDK"
+        "INSTALL_POWERSHELL:PowerShell"
+        "INSTALL_DATA_SCIENCE:Data Science Tools"
+        "INSTALL_MISC_TOOLS:Miscellaneous Tools"
+    )
+
+    for flag_info in "${feature_flags[@]}"; do
+        local flag_name="${flag_info%%:*}"
+        local flag_desc="${flag_info##*:}"
+        local flag_value="${!flag_name}"
+
+        if [[ "$flag_value" == "1" ]]; then
+            enabled_features+=("$flag_desc")
+        else
+            disabled_features+=("$flag_desc")
+        fi
+    done
+
+    echo "📦 ENABLED features (${#enabled_features[@]}):"
+    for feature in "${enabled_features[@]}"; do
+        echo "   ✅ $feature"
+    done
+
+    if [[ ${#disabled_features[@]} -gt 0 ]]; then
+        echo ""
+        echo "⏭️  DISABLED features (${#disabled_features[@]}):"
+        for feature in "${disabled_features[@]}"; do
+            echo "   ❌ $feature"
+        done
+    fi
+
+    # Final summary
+    echo ""
+    echo "=== Doctor Summary ==="
+    if [[ $errors -gt 0 ]]; then
+        echo "❌ ERRORS: $errors (must be fixed before running)"
+        echo "🔧 Please address the errors above before proceeding"
+        exit 1
+    elif [[ $warnings -gt 0 ]]; then
+        echo "⚠️  WARNINGS: $warnings (script will run but review recommended)"
+        echo "✅ No critical errors found"
+        echo "🚀 Ready to proceed (warnings can be ignored if acceptable)"
+    else
+        echo "✅ No errors or warnings found"
+        echo "🚀 Environment is ready for provisioning"
+    fi
+
+    echo ""
+    echo "To proceed with installation:"
+    echo "  sudo ./provision-ubuntu-2204-simple.sh"
+    echo ""
+    echo "To run with different options:"
+    echo "  sudo INSTALL_BROWSERS=0 ./provision-ubuntu-2204-simple.sh"
+    echo "  sudo DRY_RUN=1 ./provision-ubuntu-2204-simple.sh"
+}
+
 # Check if running from repo root
 if [[ ! -f "images/ubuntu/scripts/build/install-actions-cache.sh" ]]; then
     echo "Error: Must run from runner-images repo root directory"
@@ -210,6 +552,12 @@ fi
 
 # Create state file directory if needed
 mkdir -p "$(dirname "$STATE_FILE")"
+
+# Run doctor mode if enabled
+if [[ "$ENABLE_DOCTOR" == "1" ]]; then
+    run_doctor
+    exit 0
+fi
 
 # Export environment variables that scripts expect
 run_command "export HELPER_SCRIPTS=$HELPER_SCRIPTS"
