@@ -1154,23 +1154,36 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
     # Install Azure modules separately (they're large and slow)
     if ! skip_if_disabled "$INSTALL_AZURE_MODULES" "Azure PowerShell modules"; then
         echo_info "Pre-flight check: Verifying PowerShell environment variables..."
-        echo_info "  HELPER_SCRIPTS: $HELPER_SCRIPTS"
-        echo_info "  INSTALLER_SCRIPT_FOLDER: $INSTALLER_SCRIPT_FOLDER"
+        echo -e "  HELPER_SCRIPTS: ${GREEN}$HELPER_SCRIPTS${RESET}"
+        echo -e "  INSTALLER_SCRIPT_FOLDER: ${GREEN}$INSTALLER_SCRIPT_FOLDER${RESET}"
         
         # Verify PowerShell can see the environment variables correctly
         echo_info "PowerShell environment variable verification:"
         if command -v pwsh >/dev/null 2>&1; then
-            pwsh -c "Write-Host '  HELPER_SCRIPTS from PowerShell:' \$env:HELPER_SCRIPTS"
-            pwsh -c "Write-Host '  INSTALLER_SCRIPT_FOLDER from PowerShell:' \$env:INSTALLER_SCRIPT_FOLDER"
+            # Use proper PowerShell variable expansion
+            pwsh -c "Write-Host '  HELPER_SCRIPTS from PowerShell: ' -NoNewline; Write-Host \$env:HELPER_SCRIPTS -ForegroundColor Green"
+            pwsh -c "Write-Host '  INSTALLER_SCRIPT_FOLDER from PowerShell: ' -NoNewline; Write-Host \$env:INSTALLER_SCRIPT_FOLDER -ForegroundColor Green"
             
-            # Test the actual paths that will be used
+            # Test the actual paths that will be used with proper variable expansion
             pwsh -c "
-                \$helpersPath = '\$env:HELPER_SCRIPTS/../tests/Helpers.psm1'
-                \$toolsetPath = '\$env:INSTALLER_SCRIPT_FOLDER/toolset.json'
-                Write-Host '  Computed Helpers.psm1 path:' \$helpersPath
-                Write-Host '  Helpers.psm1 exists:' (Test-Path \$helpersPath)
-                Write-Host '  Computed toolset.json path:' \$toolsetPath  
-                Write-Host '  toolset.json exists:' (Test-Path \$toolsetPath)
+                \$helpersPath = \"\$env:HELPER_SCRIPTS/../tests/Helpers.psm1\"
+                \$toolsetPath = \"\$env:INSTALLER_SCRIPT_FOLDER/toolset.json\"
+                Write-Host '  Computed Helpers.psm1 path: ' -NoNewline
+                Write-Host \$helpersPath -ForegroundColor Cyan
+                Write-Host '  Helpers.psm1 exists: ' -NoNewline
+                if (Test-Path \$helpersPath) { 
+                    Write-Host 'True' -ForegroundColor Green 
+                } else { 
+                    Write-Host 'False' -ForegroundColor Red 
+                }
+                Write-Host '  Computed toolset.json path: ' -NoNewline
+                Write-Host \$toolsetPath -ForegroundColor Cyan
+                Write-Host '  toolset.json exists: ' -NoNewline
+                if (Test-Path \$toolsetPath) { 
+                    Write-Host 'True' -ForegroundColor Green 
+                } else { 
+                    Write-Host 'False' -ForegroundColor Red 
+                }
             "
         else
             echo_warning "PowerShell not available for pre-flight check"
