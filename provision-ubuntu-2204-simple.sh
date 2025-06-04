@@ -12,7 +12,7 @@
 # Basic Usage:
 #   sudo ./provision-ubuntu-2204-simple.sh                           # Normal execution
 #   sudo DRY_RUN=1 ./provision-ubuntu-2204-simple.sh                 # Dry run mode (shows commands without executing)
-#   sudo ENABLE_DOCTOR=1 ./provision-ubuntu-2204-simple.sh           # Doctor mode (check environment and requirements)
+#   sudo ENABLE_DOCTOR=1 ./provision-ubuntu-2204-simple.sh           # Doctor mode (check environment and auto-install missing packages)
 #   sudo DISABLE_COLORS=1 ./provision-ubuntu-2204-simple.sh          # Disable colored output
 #
 # State management (resumption support):
@@ -32,7 +32,7 @@
 #   INSTALL_POWERSHELL, INSTALL_DATA_SCIENCE, INSTALL_MISC_TOOLS
 #
 # Examples:
-#   # Check environment and requirements before running
+#   # Check environment and auto-install missing packages before running
 #   sudo ENABLE_DOCTOR=1 ./provision-ubuntu-2204-simple.sh
 #
 #   # Install only core tools and languages, skip everything else
@@ -159,6 +159,60 @@ echo_failed() {
 
 echo_dry_run() {
     echo -e "${BLUE}    [DRY RUN]${RESET} $*"
+}
+
+# Function to check and install missing packages
+check_and_install_package() {
+    local command="$1"
+    local package="$2"
+    local is_required="${3:-true}"
+
+    if command -v "$command" >/dev/null 2>&1; then
+        echo_success "Found required command: $command"
+        return 0
+    fi
+
+    # Package is missing, try to install it
+    if [[ "$is_required" == "true" ]]; then
+        echo_warning "Missing required command: $command"
+    else
+        echo_warning "Missing optional command: $command"
+    fi
+
+    if [[ "$EUID" -ne 0 ]]; then
+        echo "   Cannot install - not running as root"
+        return 1
+    fi
+
+    if [[ "$DRY_RUN" == "1" ]]; then
+        echo_dry_run "Would run: apt-get update && apt-get install -y $package"
+        return 0
+    fi
+
+    echo_step "INSTALLING: $package (provides $command)"
+
+    # Update package list if not done recently
+    if [[ ! -f /var/lib/apt/periodic/update-success-stamp ]] || [[ $(find /var/lib/apt/periodic/update-success-stamp -mmin +60) ]]; then
+        echo_info "Updating package lists..."
+        apt-get update
+    fi
+
+    # Install the package
+    if apt-get install -y "$package"; then
+        echo_success "Successfully installed $package"
+
+        # Verify the command is now available
+        if command -v "$command" >/dev/null 2>&1; then
+            echo_success "Command $command is now available"
+            return 0
+        else
+            echo_error "Package $package installed but $command still not available"
+            return 1
+        fi
+    else
+        echo_error "Failed to install package $package"
+        return 1
+    fi
 }
 
 # Function to run a step with state tracking
@@ -337,43 +391,70 @@ run_doctor() {
     fi
 
     # Check required commands for basic functionality
-    local basic_commands=("curl" "wget" "gpg" "apt-get" "jq" "unzip" "tar")
     echo ""
     echo_header "Basic System Commands"
-    for cmd in "${basic_commands[@]}"; do
-        if command -v "$cmd" >/dev/null 2>&1; then
-            echo "✅ Found required command: $cmd"
-        else
-            echo "❌ ERROR: Missing required command: $cmd"
+
+    # Define command to package mappings
+    local package_map=(
+        "curl:curl"
+        "wget:wget"
+        "gpg:gnupg"
+        "jq:jq"
+        "unzip:unzip"
+        "tar:tar"
+    )
+
+    for mapping in "${package_map[@]}"; do
+        local cmd="${mapping%%:*}"
+        local pkg="${mapping##*:}"
+
+        if ! check_and_install_package "$cmd" "$pkg" "true"; then
             ((errors++))
         fi
     done
 
+    # apt-get should always be available on Ubuntu, check separately
+    if command -v "apt-get" >/dev/null 2>&1; then
+        echo_success "Found required command: apt-get"
+    else
+        echo_error "Missing critical command: apt-get (cannot install packages)"
+        ((errors++))
+    fi
+
     # Check additional tools needed for enabled features
-    local optional_commands=()
+    echo ""
+    echo_header "Feature-specific Commands"
+
+    local optional_packages=()
 
     # Development tools requirements
     if is_enabled "$INSTALL_DEVELOPMENT_TOOLS"; then
-        optional_commands+=("make" "rsync" "parallel" "lsb_release")
+        optional_packages+=("make:make" "rsync:rsync" "parallel:parallel" "lsb_release:lsb-release")
     fi
 
     # Language-specific requirements
     if is_enabled "$INSTALL_LANGUAGES"; then
-        optional_commands+=("python3" "pip3" "shasum")
+        optional_packages+=("python3:python3" "pip3:python3-pip")
+        # shasum is typically provided by perl package but is often already available
+        if ! command -v shasum >/dev/null 2>&1; then
+            optional_packages+=("shasum:perl")
+        else
+            echo_success "Found optional command: shasum"
+        fi
     fi
 
-    if [[ ${#optional_commands[@]} -gt 0 ]]; then
-        echo ""
-        echo "=== Feature-specific Commands ==="
-        for cmd in "${optional_commands[@]}"; do
-            if command -v "$cmd" >/dev/null 2>&1; then
-                echo "✅ Found optional command: $cmd"
-            else
-                echo "⚠️  WARNING: Missing optional command: $cmd"
+    if [[ ${#optional_packages[@]} -gt 0 ]]; then
+        for mapping in "${optional_packages[@]}"; do
+            local cmd="${mapping%%:*}"
+            local pkg="${mapping##*:}"
+
+            if ! check_and_install_package "$cmd" "$pkg" "false"; then
                 echo "   Some installations may fail without this command"
                 ((warnings++))
             fi
         done
+    else
+        echo_info "No optional packages needed for current feature selection"
     fi
 
     # Docker-specific checks if container tools will be installed
@@ -593,6 +674,48 @@ run_doctor() {
 
 # Initialize colors
 init_colors
+
+# Ensure essential packages are available (auto-install if missing)
+ensure_essential_packages() {
+    local essential_commands=("curl" "wget" "jq")
+    local missing_packages=()
+
+    for cmd in "${essential_commands[@]}"; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            case "$cmd" in
+                "curl") missing_packages+=("curl") ;;
+                "wget") missing_packages+=("wget") ;;
+                "jq") missing_packages+=("jq") ;;
+            esac
+        fi
+    done
+
+    if [[ ${#missing_packages[@]} -gt 0 ]]; then
+        echo_warning "Missing essential packages: ${missing_packages[*]}"
+
+        if [[ "$EUID" -eq 0 ]]; then
+            echo_step "AUTO-INSTALLING missing packages..."
+
+            if [[ "$DRY_RUN" != "1" ]]; then
+                apt-get update -qq
+                for pkg in "${missing_packages[@]}"; do
+                    echo_info "Installing $pkg..."
+                    apt-get install -y "$pkg"
+                done
+                echo_success "Essential packages installed"
+            else
+                echo_dry_run "Would install: ${missing_packages[*]}"
+            fi
+        else
+            echo_error "Cannot auto-install packages - not running as root"
+            echo "Please run: sudo apt-get install ${missing_packages[*]}"
+            exit 1
+        fi
+    fi
+}
+
+# Check essential packages before proceeding
+ensure_essential_packages
 
 # Check if running from repo root
 if [[ ! -f "images/ubuntu/scripts/build/install-actions-cache.sh" ]]; then
