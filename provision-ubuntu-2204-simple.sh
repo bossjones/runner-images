@@ -13,6 +13,7 @@
 #   sudo ./provision-ubuntu-2204-simple.sh                           # Normal execution
 #   sudo DRY_RUN=1 ./provision-ubuntu-2204-simple.sh                 # Dry run mode (shows commands without executing)
 #   sudo ENABLE_DOCTOR=1 ./provision-ubuntu-2204-simple.sh           # Doctor mode (check environment and requirements)
+#   sudo DISABLE_COLORS=1 ./provision-ubuntu-2204-simple.sh          # Disable colored output
 #
 # State management (resumption support):
 #   sudo ./provision-ubuntu-2204-simple.sh                           # Resume from last failed step (if any)
@@ -48,6 +49,9 @@
 #
 #   # Provide Docker Hub credentials to avoid rate limits
 #   sudo DOCKERHUB_LOGIN=myuser DOCKERHUB_PASSWORD=mypass ./provision-ubuntu-2204-simple.sh
+#
+#   # Disable colors for logging to files
+#   sudo DISABLE_COLORS=1 ./provision-ubuntu-2204-simple.sh > provision.log 2>&1
 
 set -e
 
@@ -56,6 +60,9 @@ DRY_RUN="${DRY_RUN:-0}"
 
 # Doctor mode - check environment and requirements
 ENABLE_DOCTOR="${ENABLE_DOCTOR:-0}"
+
+# Color settings
+DISABLE_COLORS="${DISABLE_COLORS:-0}"
 
 # Feature flags - control which software groups to install
 # Set to 0 to skip installation of that group
@@ -75,6 +82,85 @@ INSTALL_POWERSHELL="${INSTALL_POWERSHELL:-0}"                    # PowerShell an
 INSTALL_DATA_SCIENCE="${INSTALL_DATA_SCIENCE:-0}"                # Miniconda, R language
 INSTALL_MISC_TOOLS="${INSTALL_MISC_TOOLS:-1}"                    # Selenium, pipx packages, Homebrew
 
+# Color definitions (will be set based on DISABLE_COLORS)
+RED=""
+GREEN=""
+YELLOW=""
+BLUE=""
+PURPLE=""
+CYAN=""
+WHITE=""
+BOLD=""
+RESET=""
+
+# Initialize colors based on DISABLE_COLORS setting
+init_colors() {
+    if [[ "$DISABLE_COLORS" != "1" ]] && [[ -t 1 ]]; then
+        RED='\033[0;31m'
+        GREEN='\033[0;32m'
+        YELLOW='\033[1;33m'
+        BLUE='\033[0;34m'
+        PURPLE='\033[0;35m'
+        CYAN='\033[0;36m'
+        WHITE='\033[1;37m'
+        BOLD='\033[1m'
+        RESET='\033[0m'
+    fi
+}
+
+# Colored echo functions
+echo_error() {
+    echo -e "${RED}❌ ERROR:${RESET} $*"
+}
+
+echo_success() {
+    echo -e "${GREEN}✅${RESET} $*"
+}
+
+echo_warning() {
+    echo -e "${YELLOW}⚠️  WARNING:${RESET} $*"
+}
+
+echo_info() {
+    echo -e "${BLUE}ℹ️${RESET}  $*"
+}
+
+echo_step() {
+    echo -e "${CYAN}>>>${RESET} $*"
+}
+
+echo_header() {
+    echo -e "${BOLD}${PURPLE}=== $* ===${RESET}"
+}
+
+echo_running() {
+    echo -e "${CYAN}>>> RUNNING:${RESET} $*"
+}
+
+echo_running_script() {
+    echo -e "${CYAN}>>> RUNNING SCRIPT:${RESET} $*"
+}
+
+echo_running_pwsh() {
+    echo -e "${CYAN}>>> RUNNING POWERSHELL SCRIPT:${RESET} $*"
+}
+
+echo_skipping() {
+    echo -e "${YELLOW}>>> SKIPPING:${RESET} $*"
+}
+
+echo_completed() {
+    echo -e "${GREEN}>>> COMPLETED:${RESET} $*"
+}
+
+echo_failed() {
+    echo -e "${RED}>>> FAILED:${RESET} $*"
+}
+
+echo_dry_run() {
+    echo -e "${BLUE}    [DRY RUN]${RESET} $*"
+}
+
 # Function to run a step with state tracking
 run_step() {
     local step_name="$1"
@@ -82,15 +168,15 @@ run_step() {
     local step_command="$3"
 
     if grep -q "^$step_name$" "$STATE_FILE" 2>/dev/null; then
-        echo ">>> SKIPPING: $step_name (already completed)"
+        echo_skipping "$step_name (already completed)"
         return 0
     fi
 
-    echo ">>> RUNNING STEP: $step_name"
+    echo_step "RUNNING STEP: $step_name"
 
     if [[ "$DRY_RUN" == "1" ]]; then
-        echo "    [DRY RUN] Would execute $step_type: $step_command"
-        echo "    [DRY RUN] Would mark step as completed"
+        echo_dry_run "Would execute $step_type: $step_command"
+        echo_dry_run "Would mark step as completed"
         return 0
     fi
 
@@ -105,17 +191,17 @@ run_step() {
             pwsh -f "$step_command"
             ;;
         *)
-            echo "Error: Unknown step type: $step_type"
+            echo_error "Unknown step type: $step_type"
             return 1
             ;;
     esac
 
     if [ $? -eq 0 ]; then
         echo "$step_name" >> "$STATE_FILE"
-        echo ">>> COMPLETED: $step_name"
+        echo_completed "$step_name"
     else
-        echo ">>> FAILED: $step_name"
-        echo "Fix the issue and rerun the script to resume from this step"
+        echo_failed "$step_name"
+        echo_error "Fix the issue and rerun the script to resume from this step"
         exit 1
     fi
 }
@@ -123,9 +209,9 @@ run_step() {
 # Legacy functions for backward compatibility and simple commands
 run_command() {
     local cmd="$1"
-    echo ">>> RUNNING: $cmd"
+    echo_running "$cmd"
     if [[ "$DRY_RUN" == "1" ]]; then
-        echo "    [DRY RUN] Would execute: $cmd"
+        echo_dry_run "Would execute: $cmd"
         return 0
     else
         eval "$cmd"
@@ -135,9 +221,9 @@ run_command() {
 # Function to log and optionally execute bash scripts
 run_script() {
     local script="$1"
-    echo ">>> RUNNING SCRIPT: $script"
+    echo_running_script "$script"
     if [[ "$DRY_RUN" == "1" ]]; then
-        echo "    [DRY RUN] Would execute: bash $script"
+        echo_dry_run "Would execute: bash $script"
         return 0
     else
         bash "$script"
@@ -147,9 +233,9 @@ run_script() {
 # Function to log and optionally execute PowerShell scripts
 run_pwsh_script() {
     local script="$1"
-    echo ">>> RUNNING POWERSHELL SCRIPT: $script"
+    echo_running_pwsh "$script"
     if [[ "$DRY_RUN" == "1" ]]; then
-        echo "    [DRY RUN] Would execute: pwsh -f $script"
+        echo_dry_run "Would execute: pwsh -f $script"
         return 0
     else
         pwsh -f "$script"
@@ -167,7 +253,7 @@ skip_if_disabled() {
     local flag="$1"
     local section_name="$2"
     if ! is_enabled "$flag"; then
-        echo ">>> SKIPPING: $section_name (feature flag disabled)"
+        echo_skipping "$section_name (feature flag disabled)"
         return 0
     fi
     return 1
@@ -175,41 +261,41 @@ skip_if_disabled() {
 
 # Doctor function to check environment and requirements
 run_doctor() {
-    echo "=== DOCTOR MODE: Checking Environment and Requirements ==="
+    echo_header "DOCTOR MODE: Checking Environment and Requirements"
 
     local warnings=0
     local errors=0
 
     # Check if running as root
     if [[ "$EUID" -ne 0 ]]; then
-        echo "❌ ERROR: Script must be run with sudo privileges"
+        echo_error "Script must be run with sudo privileges"
         ((errors++))
     else
-        echo "✅ Running with sudo privileges"
+        echo_success "Running with sudo privileges"
     fi
 
     # Check if in correct directory
     if [[ ! -f "images/ubuntu/scripts/build/install-actions-cache.sh" ]]; then
-        echo "❌ ERROR: Must run from runner-images repo root directory"
+        echo_error "Must run from runner-images repo root directory"
         echo "   Expected to find: images/ubuntu/scripts/build/install-actions-cache.sh"
         ((errors++))
     else
-        echo "✅ Running from correct directory (runner-images repo root)"
+        echo_success "Running from correct directory (runner-images repo root)"
     fi
 
     # Check disk space (recommend at least 20GB free)
     available_space=$(df . -BG | awk 'NR==2{print $4}' | sed 's/G//')
     if [[ $available_space -lt 20 ]]; then
-        echo "⚠️  WARNING: Only ${available_space}GB free space available"
+        echo_warning "Only ${available_space}GB free space available"
         echo "   Recommend at least 20GB for full installation"
         ((warnings++))
     else
-        echo "✅ Sufficient disk space: ${available_space}GB available"
+        echo_success "Sufficient disk space: ${available_space}GB available"
     fi
 
     # Check internet connectivity to critical services
     echo ""
-    echo "=== Network Connectivity ==="
+    echo_header "Network Connectivity"
     local critical_urls=("https://github.com" "https://api.github.com")
     local optional_urls=()
 
@@ -229,9 +315,9 @@ run_doctor() {
     # Test critical URLs
     for url in "${critical_urls[@]}"; do
         if curl -s --connect-timeout 5 "$url" >/dev/null; then
-            echo "✅ Connected to $url"
+            echo_success "Connected to $url"
         else
-            echo "❌ ERROR: Cannot connect to $url"
+            echo_error "Cannot connect to $url"
             echo "   This is required for basic functionality"
             ((errors++))
         fi
@@ -253,7 +339,7 @@ run_doctor() {
     # Check required commands for basic functionality
     local basic_commands=("curl" "wget" "gpg" "apt-get" "jq" "unzip" "tar")
     echo ""
-    echo "=== Basic System Commands ==="
+    echo_header "Basic System Commands"
     for cmd in "${basic_commands[@]}"; do
         if command -v "$cmd" >/dev/null 2>&1; then
             echo "✅ Found required command: $cmd"
@@ -505,9 +591,12 @@ run_doctor() {
     echo "  sudo DRY_RUN=1 ./provision-ubuntu-2204-simple.sh"
 }
 
+# Initialize colors
+init_colors
+
 # Check if running from repo root
 if [[ ! -f "images/ubuntu/scripts/build/install-actions-cache.sh" ]]; then
-    echo "Error: Must run from runner-images repo root directory"
+    echo_error "Must run from runner-images repo root directory"
     exit 1
 fi
 
@@ -523,31 +612,31 @@ IMAGE_OS="${IMAGE_OS:-ubuntu22}"
 STATE_FILE="${STATE_FILE:-/tmp/provision-ubuntu-2204.state}"
 FORCE_RESTART="${FORCE_RESTART:-0}"
 
-echo "=== Simplified Ubuntu 22.04 Runner Image Provisioning Started ==="
-echo "Repo root: $REPO_ROOT"
-echo "Helper scripts: $HELPER_SCRIPTS"
-echo "Installer scripts: $INSTALLER_SCRIPT_FOLDER"
-echo "State file: $STATE_FILE"
+echo_header "Simplified Ubuntu 22.04 Runner Image Provisioning Started"
+echo_info "Repo root: $REPO_ROOT"
+echo_info "Helper scripts: $HELPER_SCRIPTS"
+echo_info "Installer scripts: $INSTALLER_SCRIPT_FOLDER"
+echo_info "State file: $STATE_FILE"
 
 if [[ "$DRY_RUN" == "1" ]]; then
-    echo ">>> DRY RUN MODE ENABLED - No commands will be executed"
+    echo_warning "DRY RUN MODE ENABLED - No commands will be executed"
 fi
 
 # Initialize state file or show resumption status
 if [[ "$FORCE_RESTART" == "1" ]]; then
-    echo ">>> FORCE RESTART - Removing existing state file"
+    echo_step "FORCE RESTART - Removing existing state file"
     if [[ -f "$STATE_FILE" ]]; then
         rm -f "$STATE_FILE"
-        echo ">>> Removed existing state file: $STATE_FILE"
+        echo_success "Removed existing state file: $STATE_FILE"
     else
-        echo ">>> No existing state file to remove"
+        echo_info "No existing state file to remove"
     fi
 elif [[ -f "$STATE_FILE" ]]; then
     completed_steps=$(wc -l < "$STATE_FILE" 2>/dev/null || echo "0")
-    echo ">>> RESUMING - Found state file with $completed_steps completed steps"
-    echo ">>> To start fresh, run with FORCE_RESTART=1"
+    echo_step "RESUMING - Found state file with $completed_steps completed steps"
+    echo_info "To start fresh, run with FORCE_RESTART=1"
 else
-    echo ">>> STARTING FRESH - No previous state found"
+    echo_step "STARTING FRESH - No previous state found"
 fi
 
 # Create state file directory if needed
@@ -567,25 +656,25 @@ run_command "export IMAGE_VERSION=$IMAGE_VERSION"
 run_command "export IMAGE_OS=$IMAGE_OS"
 
 # Basic APT configuration
-echo "Configuring APT..."
+echo_info "Configuring APT..."
 run_step "configure-apt-mock" "script" "$UBUNTU_SCRIPTS_DIR/build/configure-apt-mock.sh"
 run_step "install-ms-repos" "script" "$UBUNTU_SCRIPTS_DIR/build/install-ms-repos.sh"
 run_step "configure-apt-sources" "script" "$UBUNTU_SCRIPTS_DIR/build/configure-apt-sources.sh"
 run_step "configure-apt" "script" "$UBUNTU_SCRIPTS_DIR/build/configure-apt.sh"
 
 # System configuration
-echo "Configuring system..."
+echo_info "Configuring system..."
 run_step "configure-limits" "script" "$UBUNTU_SCRIPTS_DIR/build/configure-limits.sh"
 
 # Install vital packages
 if ! skip_if_disabled "$INSTALL_CORE_TOOLS" "Vital packages installation"; then
-    echo "Installing vital packages..."
+    echo_info "Installing vital packages..."
     run_step "install-apt-vital" "script" "$UBUNTU_SCRIPTS_DIR/build/install-apt-vital.sh"
 fi
 
 # Install PowerShell (needed for many other installations)
 if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
-    echo "Installing PowerShell..."
+    echo_info "Installing PowerShell..."
     run_step "install-powershell" "script" "$UBUNTU_SCRIPTS_DIR/build/install-powershell.sh"
     run_step "install-powershell-modules" "pwsh" "$UBUNTU_SCRIPTS_DIR/build/Install-PowerShellModules.ps1"
     run_step "install-powershell-az-modules" "pwsh" "$UBUNTU_SCRIPTS_DIR/build/Install-PowerShellAzModules.ps1"
@@ -733,32 +822,32 @@ if ! skip_if_disabled "$INSTALL_MISC_TOOLS" "Miscellaneous tools"; then
 fi
 
 # Configure DPKG (always run this as it's system configuration)
-echo "Configuring DPKG..."
+echo_info "Configuring DPKG..."
 run_script "$UBUNTU_SCRIPTS_DIR/build/configure-dpkg.sh"
 
 # Configure snap
-echo "Configuring snap..."
+echo_info "Configuring snap..."
 run_script "$UBUNTU_SCRIPTS_DIR/build/configure-snap.sh"
 
 # Configure toolset (requires PowerShell)
 if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell toolset configuration"; then
-    echo "Configuring toolset..."
+    echo_info "Configuring toolset..."
     run_command "cp $REPO_ROOT/images/ubuntu/toolsets/toolset-2204.json $INSTALLER_SCRIPT_FOLDER/toolset.json"
     run_pwsh_script "$UBUNTU_SCRIPTS_DIR/build/Install-Toolset.ps1"
     run_pwsh_script "$UBUNTU_SCRIPTS_DIR/build/Configure-Toolset.ps1"
 fi
 
 # Cleanup
-echo "Running cleanup..."
+echo_info "Running cleanup..."
 run_step "cleanup" "script" "$UBUNTU_SCRIPTS_DIR/build/cleanup.sh"
 
 # Final completion summary
 if [[ "$DRY_RUN" != "1" ]]; then
     completed_steps=$(wc -l < "$STATE_FILE" 2>/dev/null || echo "0")
-    echo "=== Simplified Ubuntu 22.04 Runner Image Provisioning Completed ==="
-    echo ">>> Total completed steps: $completed_steps"
-    echo ">>> State file: $STATE_FILE"
-    echo ">>> To start fresh next time: FORCE_RESTART=1 $0"
+    echo_header "Simplified Ubuntu 22.04 Runner Image Provisioning Completed"
+    echo_success "Total completed steps: $completed_steps"
+    echo_info "State file: $STATE_FILE"
+    echo_info "To start fresh next time: FORCE_RESTART=1 $0"
 else
-    echo "=== Dry Run Completed ==="
+    echo_header "Dry Run Completed"
 fi
