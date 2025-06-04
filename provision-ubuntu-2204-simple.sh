@@ -126,7 +126,7 @@ invoke_tests() {
 # Feature flags - control which software groups to install
 # Set to 0 to skip installation of that group
 INSTALL_CORE_TOOLS="${INSTALL_CORE_TOOLS:-1}"                    # Actions cache, runner package, APT common, etc.
-INSTALL_CLOUD_TOOLS="${INSTALL_CLOUD_TOOLS:-1}"                  # Azure CLI, AWS tools, Google Cloud CLI, etc.
+INSTALL_CLOUD_TOOLS="${INSTALL_CLOUD_TOOLS:-0}"                  # Azure CLI, AWS tools, Google Cloud CLI, etc.
 INSTALL_DEVELOPMENT_TOOLS="${INSTALL_DEVELOPMENT_TOOLS:-1}"      # Clang, Swift, CMake, CodeQL, compilers, etc.
 INSTALL_VERSION_CONTROL="${INSTALL_VERSION_CONTROL:-1}"          # Git, Git LFS, GitHub CLI
 INSTALL_BROWSERS="${INSTALL_BROWSERS:-1}"                        # Firefox, Chrome, Microsoft Edge
@@ -982,6 +982,9 @@ run_command "export INSTALLER_SCRIPT_FOLDER=$INSTALLER_SCRIPT_FOLDER"
 run_command "export DEBIAN_FRONTEND=noninteractive"
 run_command "export IMAGE_VERSION=$IMAGE_VERSION"
 run_command "export IMAGE_OS=$IMAGE_OS"
+
+# Export the invoke_tests function so it's available to installation scripts
+export -f invoke_tests
 
 # Install comprehensive prerequisites as a tracked step
 run_step "install-prerequisites" "command" "install_prerequisites_step"
