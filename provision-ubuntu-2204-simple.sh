@@ -840,21 +840,44 @@ install_prerequisites() {
     # Configure locales
     echo_info "Configuring locales (en_US.UTF-8)..."
 
-    # Enable en_US.UTF-8 locale
-    if ! grep -q "en_US.UTF-8 UTF-8" /etc/locale.gen; then
-        sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+    # Enable en_US.UTF-8 locale in /etc/locale.gen
+    if ! grep -q "^en_US.UTF-8 UTF-8" /etc/locale.gen; then
+        echo_info "Enabling en_US.UTF-8 in /etc/locale.gen..."
+        # Remove any commented version first
+        sed -i '/^# en_US.UTF-8 UTF-8/d' /etc/locale.gen
+        # Add the uncommented version
+        echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
+    else
+        echo_info "en_US.UTF-8 already enabled in /etc/locale.gen"
     fi
 
-    # Generate locales
-    dpkg-reconfigure --frontend=noninteractive locales
-    update-locale LANG=en_US.UTF-8
+    # Generate locales manually for better control
+    echo_info "Generating locales..."
+    locale-gen en_US.UTF-8
 
-    # Set environment variables for current session
-    export LANG=en_US.UTF-8
-    export LANGUAGE=en_US:en
-    export LC_ALL=en_US.UTF-8
+    # Update system locale settings
+    echo_info "Updating system locale settings..."
 
-    echo_success "Locales configured successfully"
+    # Create/update /etc/default/locale
+    cat > /etc/default/locale << 'EOF'
+LANG="en_US.UTF-8"
+LANGUAGE="en_US:en"
+LC_ALL="en_US.UTF-8"
+EOF
+
+    # Update current session environment
+    export LANG="en_US.UTF-8"
+    export LANGUAGE="en_US:en"
+    export LC_ALL="en_US.UTF-8"
+
+    # Verify the locale is available
+    if locale -a | grep -q "en_US.utf8"; then
+        echo_success "Locales configured successfully"
+    else
+        echo_warning "Locale generation completed but en_US.utf8 not found in available locales"
+        echo_info "Available locales:"
+        locale -a | head -10
+    fi
 
     # Clean up package cache
     echo_info "Cleaning up package cache..."
