@@ -234,6 +234,12 @@ run_step() {
         return 0
     fi
 
+    # Pre-step setup: ensure required directories exist for specific steps
+    if [[ "$step_name" == "configure-apt-sources" ]]; then
+        echo_info "Ensuring cloud templates directory exists..."
+        mkdir -p /etc/cloud/templates
+    fi
+
     case "$step_type" in
         "command")
             eval "$step_command"
