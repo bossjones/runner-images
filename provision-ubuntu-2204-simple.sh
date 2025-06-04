@@ -1003,13 +1003,22 @@ STATE_FILE="${STATE_FILE:-/tmp/provision-ubuntu-2204.state}"
 FORCE_RESTART="${FORCE_RESTART:-0}"
 
 # Run setup as a tracked step (before we use INSTALLER_SCRIPT_FOLDER)
+# Always ensure INSTALLER_SCRIPT_FOLDER points to the temp directory
+TEMP_INSTALLER_DIR="/tmp/runner-images-installer"
+
 if [[ "$DRY_RUN" == "1" ]]; then
     echo_dry_run "Would run setup-directories-and-toolset step"
-    # Set variables for dry run
-    TEMP_INSTALLER_DIR="/tmp/runner-images-installer"
     INSTALLER_SCRIPT_FOLDER="$TEMP_INSTALLER_DIR"
 else
-    run_step "setup-directories-and-toolset" "command" "setup_directories_and_toolset"
+    # Check if setup was already completed and update INSTALLER_SCRIPT_FOLDER accordingly
+    if grep -q "^setup-directories-and-toolset$" "$STATE_FILE" 2>/dev/null; then
+        # Setup was already completed, just update the path
+        INSTALLER_SCRIPT_FOLDER="$TEMP_INSTALLER_DIR"
+        echo_info "Setup step was already completed, using temp installer directory"
+    else
+        # Run the setup step
+        run_step "setup-directories-and-toolset" "command" "setup_directories_and_toolset"
+    fi
 fi
 
 echo_header "Simplified Ubuntu 22.04 Runner Image Provisioning Started"
