@@ -67,6 +67,11 @@ DISABLE_COLORS="${DISABLE_COLORS:-0}"
 # Export critical environment variables early
 export DEBIAN_FRONTEND=noninteractive
 
+# SOURCE: https://docs.devin.ai/onboard-devin/repo-setup#homebrew-is-asking-me-for-a-password
+# Homebrew is asking me for a password
+# This is a bug in Linux Homebrew. Run CI=1 brew install <package> instead.
+export CI=1
+
 # Define invoke_tests function that installation scripts expect
 invoke_tests() {
     local test_name="$1"
@@ -335,7 +340,7 @@ ensure_helper_scripts() {
         echo_error "Basic variables not set, cannot ensure helper scripts"
         return 1
     fi
-    
+
     # Ensure the /imagegeneration/helpers directory exists and has the required files
     if [[ ! -d "/imagegeneration/helpers" ]]; then
         echo_error "Helper scripts directory missing: /imagegeneration/helpers"
@@ -347,22 +352,22 @@ ensure_helper_scripts() {
         # Restore the updated path
         INSTALLER_SCRIPT_FOLDER="$temp_installer_folder"
     fi
-    
+
     # Check for critical helper files and copy them if missing
     local missing_helpers=()
-    
+
     if [[ ! -f "/imagegeneration/helpers/os.sh" ]]; then
         missing_helpers+=("os.sh")
     fi
-    
+
     if [[ ! -f "/imagegeneration/helpers/install.sh" ]]; then
         missing_helpers+=("install.sh")
     fi
-    
+
     if [[ ${#missing_helpers[@]} -gt 0 ]]; then
         echo_warning "Missing helper scripts: ${missing_helpers[*]}"
         echo_info "Copying missing helper scripts..."
-        
+
         for helper in "${missing_helpers[@]}"; do
             if [[ -f "$UBUNTU_SCRIPTS_DIR/helpers/$helper" ]]; then
                 cp "$UBUNTU_SCRIPTS_DIR/helpers/$helper" "/imagegeneration/helpers/$helper"
@@ -373,20 +378,20 @@ ensure_helper_scripts() {
             fi
         done
     fi
-    
+
     # Export the HELPER_SCRIPTS environment variable to ensure it's available
     export HELPER_SCRIPTS="/imagegeneration/helpers"
     export INSTALLER_SCRIPT_FOLDER="/imagegeneration"
-    
+
     # Source the helper scripts to make functions available globally
     if [[ -f "/imagegeneration/helpers/os.sh" ]]; then
         source "/imagegeneration/helpers/os.sh"
     fi
-    
+
     if [[ -f "/imagegeneration/helpers/install.sh" ]]; then
         source "/imagegeneration/helpers/install.sh"
     fi
-    
+
     # Provide fallback functions if helpers are not available
     if ! command -v get_toolset_value >/dev/null 2>&1; then
         get_toolset_value() {
@@ -399,19 +404,19 @@ ensure_helper_scripts() {
             fi
         }
     fi
-    
+
     if ! command -v is_ubuntu24 >/dev/null 2>&1; then
         is_ubuntu24() {
             lsb_release -rs 2>/dev/null | grep -q '24.04'
         }
     fi
-    
+
     if ! command -v is_ubuntu22 >/dev/null 2>&1; then
         is_ubuntu22() {
             lsb_release -rs 2>/dev/null | grep -q '22.04'
         }
     fi
-    
+
     # Export the functions so they're available to child processes
     export -f get_toolset_value
     export -f is_ubuntu24
@@ -442,7 +447,7 @@ run_step() {
         echo_info "Ensuring cloud templates directory exists..."
         mkdir -p /etc/cloud/templates
     fi
-    
+
     # Ensure helper scripts are available for script execution steps
     if [[ "$step_type" == "script" ]] && [[ "$step_command" == *"/build/"* ]]; then
         ensure_helper_scripts
@@ -456,24 +461,24 @@ run_step() {
             # Export environment variables before running script
             export HELPER_SCRIPTS="/imagegeneration/helpers"
             export INSTALLER_SCRIPT_FOLDER="/imagegeneration"
-            
+
             # Export critical functions to the script environment
             export -f get_toolset_value 2>/dev/null || true
             export -f is_ubuntu24 2>/dev/null || true
             export -f is_ubuntu22 2>/dev/null || true
-            
+
             bash "$step_command"
             ;;
         "pwsh")
             # Export environment variables before running PowerShell script
             export HELPER_SCRIPTS="/imagegeneration/helpers"
             export INSTALLER_SCRIPT_FOLDER="/imagegeneration"
-            
+
             # Export critical functions to the script environment
             export -f get_toolset_value 2>/dev/null || true
             export -f is_ubuntu24 2>/dev/null || true
             export -f is_ubuntu22 2>/dev/null || true
-            
+
             pwsh -f "$step_command"
             ;;
         *)
@@ -1089,7 +1094,7 @@ cleanup_imagegeneration() {
 setup_directories_and_toolset() {
     # Always start with a clean imagegeneration directory
     cleanup_imagegeneration
-    
+
     # Create the imagegeneration directory structure (matches Packer builds)
     echo_info "Setting up imagegeneration directory structure..."
     mkdir -p "/imagegeneration"
@@ -1118,16 +1123,16 @@ setup_directories_and_toolset() {
         # Copy all helper files - use direct copy to avoid wildcard issues
         # Only copy files, not subdirectories
         find "$UBUNTU_SCRIPTS_DIR/helpers/" -maxdepth 1 -type f -exec cp {} "/imagegeneration/helpers/" \; 2>/dev/null || true
-        
+
         # Make helper scripts executable
         chmod +x "/imagegeneration/helpers/"*.sh 2>/dev/null || true
-        
+
         echo_success "Helper scripts copied to /imagegeneration/helpers"
-        
+
         # List what we actually copied for debugging
         echo_info "Files copied to /imagegeneration/helpers/:"
         ls -la "/imagegeneration/helpers/" || echo_warning "Could not list helper files"
-        
+
         # Verify critical helper files were copied
         if [[ -f "/imagegeneration/helpers/os.sh" ]]; then
             echo_success "  ✓ os.sh copied successfully"
@@ -1142,7 +1147,7 @@ setup_directories_and_toolset() {
             fi
         fi
         if [[ -f "/imagegeneration/helpers/install.sh" ]]; then
-            echo_success "  ✓ install.sh copied successfully"  
+            echo_success "  ✓ install.sh copied successfully"
         else
             echo_error "  ✗ install.sh not found after copy"
             echo_info "  Source path: $UBUNTU_SCRIPTS_DIR/helpers/install.sh"
@@ -1191,7 +1196,7 @@ else
         echo_info "Running setup to create /imagegeneration directory..."
         run_step "setup-directories-and-toolset" "command" "setup_directories_and_toolset"
     fi
-    
+
     # Ensure INSTALLER_SCRIPT_FOLDER points to imagegeneration after setup
     INSTALLER_SCRIPT_FOLDER="$IMAGEGENERATION_DIR"
     # Also update HELPER_SCRIPTS to point to the copied helpers in imagegeneration
@@ -1245,7 +1250,7 @@ if [[ "$FORCE_RESTART" == "1" ]]; then
     else
         echo_info "No existing state file to remove"
     fi
-    
+
     # Note: imagegeneration directory cleanup is handled by setup function
     # cleanup_imagegeneration  # Removed - this was deleting the directory we just created!
 elif [[ -f "$STATE_FILE" ]]; then
@@ -1335,14 +1340,14 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
         echo_info "Pre-flight check: Verifying PowerShell environment variables..."
         echo -e "  HELPER_SCRIPTS: ${GREEN}$HELPER_SCRIPTS${RESET}"
         echo -e "  INSTALLER_SCRIPT_FOLDER: ${GREEN}$INSTALLER_SCRIPT_FOLDER${RESET}"
-        
+
         # Verify PowerShell can see the environment variables correctly
         echo_info "PowerShell environment variable verification:"
         if command -v pwsh >/dev/null 2>&1; then
             # Use proper PowerShell variable expansion
             pwsh -c "Write-Host '  HELPER_SCRIPTS from PowerShell: ' -NoNewline; Write-Host \$env:HELPER_SCRIPTS -ForegroundColor Green"
             pwsh -c "Write-Host '  INSTALLER_SCRIPT_FOLDER from PowerShell: ' -NoNewline; Write-Host \$env:INSTALLER_SCRIPT_FOLDER -ForegroundColor Green"
-            
+
             # Test the actual paths that will be used with proper variable expansion
             pwsh -c "
                 \$helpersPath = \"\$env:HELPER_SCRIPTS/../tests/Helpers.psm1\"
@@ -1350,42 +1355,42 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
                 Write-Host '  Computed Helpers.psm1 path: ' -NoNewline
                 Write-Host \$helpersPath -ForegroundColor Cyan
                 Write-Host '  Helpers.psm1 exists: ' -NoNewline
-                if (Test-Path \$helpersPath) { 
-                    Write-Host 'True' -ForegroundColor Green 
-                } else { 
-                    Write-Host 'False' -ForegroundColor Red 
+                if (Test-Path \$helpersPath) {
+                    Write-Host 'True' -ForegroundColor Green
+                } else {
+                    Write-Host 'False' -ForegroundColor Red
                 }
                 Write-Host '  Computed toolset.json path: ' -NoNewline
                 Write-Host \$toolsetPath -ForegroundColor Cyan
                 Write-Host '  toolset.json exists: ' -NoNewline
-                if (Test-Path \$toolsetPath) { 
-                    Write-Host 'True' -ForegroundColor Green 
-                } else { 
-                    Write-Host 'False' -ForegroundColor Red 
+                if (Test-Path \$toolsetPath) {
+                    Write-Host 'True' -ForegroundColor Green
+                } else {
+                    Write-Host 'False' -ForegroundColor Red
                 }
-                
+
                 # Additional checks for tests directory structure
                 \$testsDir = '/imagegeneration/tests'
                 \$azModulesTest = '/imagegeneration/tests/PowerShellModules.Tests.ps1'
-                
+
                 Write-Host '  Tests directory: ' -NoNewline
                 Write-Host \$testsDir -ForegroundColor Cyan
                 Write-Host '  Tests directory exists: ' -NoNewline
-                if (Test-Path \$testsDir) { 
-                    Write-Host 'True' -ForegroundColor Green 
-                } else { 
-                    Write-Host 'False' -ForegroundColor Red 
+                if (Test-Path \$testsDir) {
+                    Write-Host 'True' -ForegroundColor Green
+                } else {
+                    Write-Host 'False' -ForegroundColor Red
                 }
-                
+
                 Write-Host '  PowerShellModules test file: ' -NoNewline
                 Write-Host \$azModulesTest -ForegroundColor Cyan
                 Write-Host '  PowerShellModules test exists: ' -NoNewline
-                if (Test-Path \$azModulesTest) { 
-                    Write-Host 'True' -ForegroundColor Green 
-                } else { 
-                    Write-Host 'False' -ForegroundColor Red 
+                if (Test-Path \$azModulesTest) {
+                    Write-Host 'True' -ForegroundColor Green
+                } else {
+                    Write-Host 'False' -ForegroundColor Red
                 }
-                
+
                 # Check PowerShell module availability and paths
                 Write-Host ''
                 Write-Host 'PowerShell Module Environment:' -ForegroundColor Yellow
@@ -1393,7 +1398,7 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
                 foreach (\$path in \$env:PSModulePath.Split(':')) {
                     Write-Host \"    \$path\" -ForegroundColor Magenta
                 }
-                
+
                 Write-Host '  Available PowerShell Modules:'
                 \$modules = Get-Module -ListAvailable | Group-Object Name | ForEach-Object { \$_.Name }
                 if (\$modules -contains 'Pester') {
@@ -1405,7 +1410,7 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
                     Write-Host '    Pester: ' -NoNewline
                     Write-Host 'NOT AVAILABLE' -ForegroundColor Red
                 }
-                
+
                 if (\$modules -contains 'PSScriptAnalyzer') {
                     Write-Host '    PSScriptAnalyzer: ' -NoNewline
                     Write-Host 'Available' -ForegroundColor Green
@@ -1413,7 +1418,7 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
                     Write-Host '    PSScriptAnalyzer: ' -NoNewline
                     Write-Host 'NOT AVAILABLE' -ForegroundColor Red
                 }
-                
+
                 # Test if we can actually import Pester
                 Write-Host '  Pester Import Test:'
                 try {
@@ -1424,7 +1429,7 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
                 } catch {
                     Write-Host \"    Import failed: \$_\" -ForegroundColor Red
                 }
-                
+
                 # Additional diagnostic information
                 Write-Host ''
                 Write-Host 'Additional Diagnostics:' -ForegroundColor Yellow
@@ -1451,19 +1456,19 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
         else
             echo_warning "PowerShell not available for pre-flight check"
         fi
-        
+
         # Interactive confirmation to review the debug output
         if [[ "$DRY_RUN" != "1" ]]; then
             echo ""
             echo_step "CONFIRMATION: Review the environment variables above"
             echo_info "Please verify that:"
             echo_info "  1. HELPER_SCRIPTS points to /imagegeneration/helpers"
-            echo_info "  2. INSTALLER_SCRIPT_FOLDER points to /imagegeneration" 
+            echo_info "  2. INSTALLER_SCRIPT_FOLDER points to /imagegeneration"
             echo_info "  3. Helpers.psm1, toolset.json, tests directory, and PowerShellModules test all show 'True'"
             echo_info "  4. Pester module shows 'Available' and 'Import successful'"
             echo_info "  5. All paths are colored GREEN (good) and no RED 'False' or 'NOT AVAILABLE' values appear"
             echo ""
-            
+
             # Check if PowerShell modules are missing and offer to fix
             if ! pwsh -c "Get-Module -ListAvailable -Name Pester" >/dev/null 2>&1; then
                 echo_warning "Pester module is not available!"
@@ -1516,7 +1521,7 @@ if ! skip_if_disabled "$INSTALL_POWERSHELL" "PowerShell installation"; then
                 done
             fi
         fi
-        
+
         echo_info "Starting Azure PowerShell modules installation..."
         set -x
         run_step "install-powershell-az-modules" "pwsh" "$UBUNTU_SCRIPTS_DIR/build/Install-PowerShellAzModules.ps1"
